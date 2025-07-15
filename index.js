@@ -7,12 +7,12 @@ const qrcode = require('qrcode-terminal');
 const P = require('pino');
 const { Boom } = require('@hapi/boom');
 const manejarMensaje = require('./comandos');
-
-// 🆕 Importar registrarUsuario desde anunciar.js
 const { registrarUsuario } = require('./anunciar');
-
-// 🆕 Importar enviarBienvenida desde bienvenida.js
 const { enviarBienvenida } = require('./bienvenida');
+
+// 🔥 Módulos HTTP y HTTPS para KeepAlive
+const http = require('http');
+const https = require('https');
 
 let socketGlobal = null;
 
@@ -21,13 +21,13 @@ async function iniciarBot() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false,
+        printQRInTerminal: true, // ✅ QR visible para iniciar sesión en Render
         logger: P({ level: 'silent' }),
         syncFullHistory: false,
         markOnlineOnConnect: true,
     });
 
-    socketGlobal = sock; // para acceso global si lo necesitás
+    socketGlobal = sock;
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -65,11 +65,8 @@ async function iniciarBot() {
             if (!msg.message || msg.key.fromMe) return;
 
             try {
-                // 🟢 Registrar usuario si es un chat privado
                 if (!msg.key.remoteJid.endsWith('@g.us')) {
                     registrarUsuario(msg.key.remoteJid);
-                    
-                    // 🟢 Enviar bienvenida a un nuevo usuario
                     await enviarBienvenida(sock, msg, msg.key.remoteJid);
                 }
 
@@ -87,12 +84,23 @@ async function iniciarBot() {
         }
     });
 
-    // 🟢 KeepAlive Ping interno cada 25 segundos para Render
+    // ✅ KeepAlive Ping para Render
+    const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || 'http://localhost:' + (process.env.PORT || 3000);
     setInterval(() => {
-        require('http').get(process.env.RENDER_EXTERNAL_URL || 'http://localhost:' + (process.env.PORT || 3000));
+        try {
+            const client = keepAliveUrl.startsWith('https') ? https : http;
+            client.get(keepAliveUrl, res => {
+                res.on('data', () => {}); // Consumir respuesta
+            }).on('error', err => {
+                console.error('❌ Error en keepAlive ping:', err.message);
+            });
+        } catch (err) {
+            console.error('❌ Excepción en keepAlive:', err.message);
+        }
     }, 25 * 1000);
 }
 
 iniciarBot();
+
 
 
