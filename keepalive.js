@@ -2,28 +2,31 @@ const express = require('express');
 const http = require('http');
 const app = express();
 
-// Puerto para mantener Render activo
+// 🌐 Puerto para que Render detecte tráfico
 const PORT = process.env.PORT || 3000;
 
+// Ruta principal para verificar que el bot está activo
 app.get('/', (req, res) => {
   res.send('✅ Bot Shelby en línea en Render!');
 });
 
-// Escuchar en el puerto para que Render detecte tráfico
+// 🟢 Inicia el servidor Express
 app.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
 
-// 🟢 Ping interno cada 25 segundos para evitar que Render duerma el contenedor
+// 🟢 KeepAlive interno: Pings cada 25 segundos
 setInterval(() => {
-  http.get(process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`, (res) => {
-    console.log(`📡 Ping interno enviado (${res.statusCode})`);
+  const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  http.get(url, (res) => {
+    console.log(`📡 Ping interno enviado a ${url} (Status: ${res.statusCode})`);
   }).on('error', (err) => {
     console.error('❌ Error en el ping interno:', err.message);
   });
 }, 25 * 1000);
 
-// 🟢 Inicia tu bot normalmente
+// 🚀 Inicia tu bot normalmente
 require('./index'); // Cambia './index' si tu archivo principal tiene otro nombre
+
 
 
