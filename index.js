@@ -10,7 +10,6 @@ const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
 
-// 🔥 Módulos HTTP y HTTPS para KeepAlive
 const http = require('http');
 const https = require('https');
 
@@ -21,7 +20,7 @@ async function iniciarBot() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true, // ✅ QR visible para iniciar sesión en Render
+        printQRInTerminal: false, // Cambiado a false para evitar el warning deprecated
         logger: P({ level: 'silent' }),
         syncFullHistory: false,
         markOnlineOnConnect: true,
@@ -84,13 +83,13 @@ async function iniciarBot() {
         }
     });
 
-    // ✅ KeepAlive Ping para Render
-    const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || 'http://localhost:' + (process.env.PORT || 3000);
+    // KeepAlive ping para Render
+    const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
         try {
             const client = keepAliveUrl.startsWith('https') ? https : http;
             client.get(keepAliveUrl, res => {
-                res.on('data', () => {}); // Consumir respuesta
+                res.on('data', () => {}); // Consumir respuesta para evitar memory leaks
             }).on('error', err => {
                 console.error('❌ Error en keepAlive ping:', err.message);
             });
@@ -101,6 +100,7 @@ async function iniciarBot() {
 }
 
 iniciarBot();
+
 
 
 

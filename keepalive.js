@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const app = express();
 
 // 🌐 Puerto para que Render detecte tráfico
@@ -18,7 +19,9 @@ app.listen(PORT, () => {
 // 🟢 KeepAlive interno: Pings cada 25 segundos
 setInterval(() => {
   const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-  http.get(url, (res) => {
+  const client = url.startsWith('https') ? https : http;
+
+  client.get(url, (res) => {
     console.log(`📡 Ping interno enviado a ${url} (Status: ${res.statusCode})`);
   }).on('error', (err) => {
     console.error('❌ Error en el ping interno:', err.message);
@@ -27,6 +30,7 @@ setInterval(() => {
 
 // 🚀 Inicia tu bot normalmente
 require('./index'); // Cambia './index' si tu archivo principal tiene otro nombre
+
 
 
 
