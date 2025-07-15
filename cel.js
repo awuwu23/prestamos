@@ -6,29 +6,39 @@ const {
   yaUsoBusquedaGratis,
   registrarBusquedaGratis
 } = require('./membresia');
+const fs = require('fs');
+const path = require('path');
 
+// 🟢 Normaliza cualquier número a formato argentino internacional
 function limpiarNumero(input) {
-  return input
-    .replace(/[^0-9]/g, '')   // solo números
-    .replace(/^549/, '')      // +54 9...
-    .replace(/^54/, '')       // +54...
-    .replace(/^9/, '')        // 9...
-    .trim();
+  let n = input.replace(/\D/g, '');
+  if (n.startsWith('54')) return n;
+  if (n.length >= 13 && !n.startsWith('54')) return '54' + n;
+  if (n.length >= 10 && !n.startsWith('54')) return '54' + n;
+  return n;
+}
+
+// 🔢 Devuelve los últimos 10 dígitos para el bot de Telegram
+function obtenerDiezDigitos(numero) {
+  const limpio = numero.replace(/\D/g, '');
+  return limpio.slice(-10); // ej: de 5493816611745 → 3816611745
 }
 
 function esNumeroCelularValido(numero) {
   const limpio = limpiarNumero(numero);
-  return /^\d{9,12}$/.test(limpio);
+  return /^\d{9,15}$/.test(limpio);
 }
 
-async function buscarCelularTelegram(celular, sock, from, numeroRemitente) {
+async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDestino, enProceso) {
+  const numeroNormalizado = limpiarNumero(comando);
+  const celularParaTelegram = obtenerDiezDigitos(numeroNormalizado);
   const remitenteNormalizado = limpiarNumero(numeroRemitente);
   const esAdmin = adminList.includes(remitenteNormalizado);
   const tieneMembresia = verificarMembresia(remitenteNormalizado);
 
   if (!esAdmin && !tieneMembresia) {
     if (yaUsoBusquedaGratis(remitenteNormalizado)) {
-      await sock.sendMessage(from, {
+      await sock.sendMessage(respuestaDestino, {
         text: '🔒 Ya usaste tu búsqueda gratuita. Contactá al *3813885182* para activar tu membresía.'
       });
       return;
@@ -42,60 +52,112 @@ async function buscarCelularTelegram(celular, sock, from, numeroRemitente) {
   const client = await iniciarClienteTelegram();
   if (!client || typeof client.sendMessage !== 'function') {
     console.error('❌ Cliente Telegram no válido.');
-    await sock.sendMessage(from, {
+    await sock.sendMessage(respuestaDestino, {
       text: '❌ No se pudo conectar con el sistema de verificación.',
     });
     return;
   }
 
   try {
+    // 🚫 Quitamos el mensaje duplicado aquí
+    console.log(`📲 Enviando /cel ${celularParaTelegram} al bot de Telegram`);
     const bot = await client.getEntity(botUsername);
-    await client.sendMessage(bot, { message: `/cel ${celular}` });
+    await client.sendMessage(bot, { message: `/cel ${celularParaTelegram}` });
 
     const textos = [];
-    const handler = async (event) => {
-      const msgTelegram = event.message;
-      const fromBot = msgTelegram.senderId && msgTelegram.senderId.equals(bot.id);
-      if (!fromBot || msgTelegram.media) return;
+    let imagenDescargada = false;
 
-      const contenido = msgTelegram.message?.trim();
-      if (contenido) {
-        console.log('📩 Mensaje recibido del bot:', contenido);
-        textos.push(contenido);
-      }
-    };
+    // Configuración de tiempos extendidos
+    const DEBOUNCE_MS = 15000;       // 15 segundos de espera entre mensajes
+    const TIMEOUT_GLOBAL_MS = 40000; // Timeout máximo 40 segundos
 
-    client.addEventHandler(handler, new NewMessage({}));
+    await new Promise((resolve, reject) => {
+      let timeout;
 
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    client.removeEventHandler(handler);
+      const handler = async (event) => {
+        const msgTelegram = event.message;
+        const senderId = msgTelegram.senderId?.value || msgTelegram.senderId;
+        if (String(senderId) !== String(bot.id)) return;
 
-    if (textos.length === 0) {
-      await sock.sendMessage(from, {
-        text: '⚠️ El sistema no respondió con información útil para ese número.',
-      });
-      return;
-    }
+        if (msgTelegram.message) {
+          const contenido = msgTelegram.message.trim();
+          console.log('📩 Texto recibido del bot:', contenido);
+          textos.push(contenido);
+        }
 
-    const respuesta = textos.join('\n\n').trim();
+        if (msgTelegram.media) {
+          console.log('🖼️ Imagen recibida del bot, descargando...');
+          try {
+            const buffer = await client.downloadMedia(msgTelegram);
+            const nombreArchivo = `informe_${Date.now()}.jpg`;
+            const rutaArchivo = path.join(__dirname, nombreArchivo);
+            fs.writeFileSync(rutaArchivo, buffer);
+            imagenDescargada = rutaArchivo;
+            console.log('✅ Imagen descargada en', rutaArchivo);
+          } catch (err) {
+            console.error('❌ Error al descargar imagen:', err);
+          }
+        }
 
-    await sock.sendMessage(from, {
-      text: `🔍 *Resultado de búsqueda:*\n\n${respuesta}`,
+        // Reinicia timeout para esperar más mensajes
+        clearTimeout(timeout);
+        timeout = setTimeout(async () => {
+          client.removeEventHandler(handler);
+          await procesarRespuestas(sock, respuestaDestino, textos, imagenDescargada);
+          resolve();
+        }, DEBOUNCE_MS);
+      };
+
+      client.addEventHandler(handler, new NewMessage({}));
+
+      // Timeout global por si no llega ninguna respuesta
+      timeout = setTimeout(() => {
+        client.removeEventHandler(handler);
+        reject(new Error('⏰ Timeout esperando respuesta del bot de Telegram'));
+      }, TIMEOUT_GLOBAL_MS);
     });
 
   } catch (err) {
     console.error('❌ Error durante la búsqueda /cel:', err);
-    await sock.sendMessage(from, {
+    await sock.sendMessage(respuestaDestino, {
       text: '⚠️ Ocurrió un error al realizar la búsqueda del celular.',
     });
+  } finally {
+    enProceso.delete(numeroRemitente);
+  }
+}
+
+async function procesarRespuestas(sock, to, textos, imagen) {
+  const respuesta = textos.join('\n\n').trim();
+  console.log('📤 Enviando resultado final a WhatsApp...');
+
+  if (respuesta) {
+    await sock.sendMessage(to, {
+      text: `🔍 *Resultado de búsqueda:*\n\n${respuesta}`,
+    });
+  }
+  if (imagen) {
+    const buffer = fs.readFileSync(imagen);
+    await sock.sendMessage(to, {
+      image: buffer,
+      caption: '📄 *Informe adjunto*',
+    });
+    fs.unlinkSync(imagen); // elimina archivo temporal
+    console.log('🗑️ Imagen temporal eliminada.');
   }
 }
 
 module.exports = {
   limpiarNumero,
   esNumeroCelularValido,
-  buscarCelularTelegram,
+  consultarPorCelular
 };
+
+
+
+
+
+
 
 
 

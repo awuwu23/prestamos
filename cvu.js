@@ -6,24 +6,26 @@ const {
   yaUsoBusquedaGratis,
   registrarBusquedaGratis
 } = require('./membresia');
+const fs = require('fs');
+const path = require('path');
 
-// Verifica si el texto es un posible CVU/CBU (22 dígitos)
 function esCVUoCBU(texto) {
   if (!texto || typeof texto !== 'string') return false;
-  return /^\d{22}$/.test(texto.replace(/[^0-9]/g, ''));
+  return /^\d{22}$/.test(texto.replace(/\D/g, ''));
 }
 
-// Normaliza el número de CVU/CBU (quita espacios o símbolos)
 function limpiarCVU(texto) {
   if (!texto || typeof texto !== 'string') return '';
-  return texto.replace(/[^0-9]/g, '').trim();
+  return texto.replace(/\D/g, '').trim();
 }
 
-async function buscarCVUTelegram(cvu, sock, from, numeroRemitente) {
-  if (!cvu || typeof cvu !== 'string') {
-    console.warn('❌ CVU inválido recibido:', cvu);
-    await sock.sendMessage(from, {
-      text: '⚠️ El CVU/CBU ingresado no es válido.',
+async function buscarCVUTelegram(cvuCrudo, sock, respuestaDestino, numeroRemitente, enProceso) {
+  const cvu = limpiarCVU(cvuCrudo);
+
+  if (!esCVUoCBU(cvu)) {
+    console.warn('❌ CVU inválido recibido:', cvuCrudo);
+    await sock.sendMessage(respuestaDestino, {
+      text: '⚠️ El CVU/CBU ingresado no es válido. Debe contener exactamente 22 dígitos.',
     });
     return;
   }
@@ -34,8 +36,8 @@ async function buscarCVUTelegram(cvu, sock, from, numeroRemitente) {
 
   if (!esAdmin && !tieneMembresia) {
     if (yaUsoBusquedaGratis(remitenteNormalizado)) {
-      await sock.sendMessage(from, {
-        text: '🔒 Ya usaste tu búsqueda gratuita. Contactá al *3813885182* para activar tu membresía.'
+      await sock.sendMessage(respuestaDestino, {
+        text: '🔒 Ya usaste tu búsqueda gratuita. Contactá al *3813885182* para activar tu membresía.',
       });
       return;
     }
@@ -48,52 +50,105 @@ async function buscarCVUTelegram(cvu, sock, from, numeroRemitente) {
   const client = await iniciarClienteTelegram();
   if (!client || typeof client.sendMessage !== 'function') {
     console.error('❌ Cliente Telegram no válido.');
-    await sock.sendMessage(from, {
+    await sock.sendMessage(respuestaDestino, {
       text: '❌ No se pudo conectar con el sistema de verificación.',
     });
     return;
   }
 
   try {
+    console.log(`📤 Enviando /cvu ${cvu} al bot de Telegram`);
     const bot = await client.getEntity(botUsername);
     await client.sendMessage(bot, { message: `/cvu ${cvu}` });
 
     const textos = [];
-    let resolved = false;
+    let imagenDescargada = false;
 
-    const handler = async (event) => {
-      const msgTelegram = event.message;
-      const fromBot = msgTelegram.senderId && msgTelegram.senderId.equals(bot.id);
-      if (!fromBot || msgTelegram.media) return;
+    await new Promise((resolve, reject) => {
+      let timeout;
+      let procesando = false;
 
-      console.log('📨 Capturado mensaje del bot Telegram:', msgTelegram.message);
-      textos.push(msgTelegram.message);
-    };
+      const handler = async (event) => {
+        const msgTelegram = event.message;
+        const senderId = msgTelegram.senderId?.value || msgTelegram.senderId;
+        if (String(senderId) !== String(bot.id)) return;
 
-    client.addEventHandler(handler, new NewMessage({}));
+        if (msgTelegram.message) {
+          const contenido = msgTelegram.message.trim();
+          console.log('📩 Texto recibido del bot:', contenido);
 
-    setTimeout(async () => {
-      if (!resolved) {
-        resolved = true;
-        client.removeEventHandler(handler);
-
-        if (textos.length <= 1) {
-          await sock.sendMessage(from, {
-            text: '⚠️ El sistema no devolvió datos suficientes para ese CVU.',
-          });
-        } else {
-          const respuesta = textos.slice(1).join('\n\n').trim();
-          await sock.sendMessage(from, {
-            text: `🏦 Resultado de CVU/CBU:\n\n${respuesta}`,
-          });
+          // Detectar si el bot aún está procesando
+          if (/buscando datos|procesando/i.test(contenido)) {
+            procesando = true;
+            console.log('⏳ Bot aún procesando, esperando...');
+          } else {
+            procesando = false;
+            textos.push(contenido);
+          }
         }
-      }
-    }, 5000);
+
+        if (msgTelegram.media) {
+          console.log('🖼️ Imagen recibida del bot, descargando...');
+          try {
+            const buffer = await client.downloadMedia(msgTelegram);
+            const nombreArchivo = `informe_${Date.now()}.jpg`;
+            const rutaArchivo = path.join(__dirname, nombreArchivo);
+            fs.writeFileSync(rutaArchivo, buffer);
+            imagenDescargada = rutaArchivo;
+            console.log('✅ Imagen descargada en', rutaArchivo);
+            procesando = false; // Si ya llegó la imagen, podemos terminar
+          } catch (err) {
+            console.error('❌ Error al descargar imagen:', err);
+          }
+        }
+
+        clearTimeout(timeout);
+        timeout = setTimeout(async () => {
+          if (procesando) {
+            console.log('⏳ Timeout parcial, bot sigue procesando...');
+            return; // Esperar más si aún está procesando
+          }
+          client.removeEventHandler(handler);
+          await procesarRespuestas(sock, respuestaDestino, textos, imagenDescargada);
+          resolve();
+        }, 8000); // espera 8s entre mensajes antes de cerrar
+      };
+
+      client.addEventHandler(handler, new NewMessage({}));
+
+      timeout = setTimeout(() => {
+        client.removeEventHandler(handler);
+        reject(new Error('⏰ Timeout total esperando respuesta del bot de Telegram'));
+      }, 60000); // 60s máximo total
+    });
+
   } catch (err) {
     console.error('❌ Error durante búsqueda de CVU:', err);
-    await sock.sendMessage(from, {
+    await sock.sendMessage(respuestaDestino, {
       text: '⚠️ Ocurrió un error al realizar la búsqueda del CVU/CBU.',
     });
+  } finally {
+    enProceso.delete(numeroRemitente);
+  }
+}
+
+async function procesarRespuestas(sock, to, textos, imagen) {
+  const respuesta = textos.join('\n\n').trim();
+  console.log('📤 Enviando resultado final a WhatsApp...');
+
+  if (respuesta) {
+    await sock.sendMessage(to, {
+      text: `🏦 *Resultado de búsqueda CVU/CBU:*\n\n${respuesta}`,
+    });
+  }
+  if (imagen) {
+    const buffer = fs.readFileSync(imagen);
+    await sock.sendMessage(to, {
+      image: buffer,
+      caption: '📄 *Informe adjunto*',
+    });
+    fs.unlinkSync(imagen); // elimina archivo temporal
+    console.log('🗑️ Imagen temporal eliminada.');
   }
 }
 
@@ -102,4 +157,8 @@ module.exports = {
   limpiarCVU,
   buscarCVUTelegram,
 };
+
+
+
+
 

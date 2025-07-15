@@ -7,7 +7,9 @@ const {
     verificarMembresia,
     yaUsoBusquedaGratis,
     registrarBusquedaGratis,
-    tiempoRestante
+    tiempoRestante,
+    actualizarIdGrupo,
+    normalizarNumero
 } = require('./membresia');
 
 const {
@@ -19,26 +21,21 @@ const {
     adminList
 } = require('./comandos/membre');
 
+const { mostrarMembresiasActivas } = require('./membresiactiva'); // ✅ NUEVO
 const { manejarCel, manejarMenu, manejarCredito } = require('./comandos/utiles');
 const manejarRegistrar = require('./comandos/registrar');
 const manejarDnrpa = require('./comandos/dnrpa');
 const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
-const enProceso = new Set();
+// ✅ Cola centralizada
+const { agregarConsulta, obtenerEstado } = require('./cola');
 
+const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
 
 function esTelegram(sock) {
     return typeof sock.sendMessage === 'function' && !sock.ev;
-}
-
-function normalizarNumero(numero) {
-    const limpio = numero.toString().replace(/\D/g, '');
-    if (/^\d{9,16}$/.test(limpio)) return limpio;
-    if (limpio.startsWith('549')) return limpio;
-    if (limpio.startsWith('54')) return '549' + limpio.slice(2);
-    return '549' + limpio;
 }
 
 async function manejarMensaje(sock, msg) {
@@ -63,15 +60,40 @@ async function manejarMensaje(sock, msg) {
             return;
         }
 
-        const raw = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
-        const numero = esTelegram(sock) ? raw : normalizarNumero(raw);
-        const numeroNormalizado = normalizarNumero(raw);
-        const respuestaDestino = from;
-        const fakeSenderJid = esTelegram(sock) ? `${numero}` : `${numero}@s.whatsapp.net`;
+        const rawSender = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
+        const numeroNormalizado = normalizarNumero(rawSender);
 
-        console.log('📤 Número procesado:', numero);
-        console.log('👑 ¿Es admin?:', adminList.includes(numeroNormalizado));
+        let idUsuario = numeroNormalizado;
+        if (esGrupoWhatsApp) {
+            idUsuario = rawSender;
+        }
+
+        const numeroSimple = normalizarNumero(rawSender);
+        const respuestaDestino = from;
+        const fakeSenderJid = esTelegram(sock) ? `${numeroSimple}` : `${numeroSimple}@s.whatsapp.net`;
+
+        console.log('📤 ID usuario para membresía/admin:', idUsuario);
+        console.log('📤 Número simple:', numeroSimple);
+        console.log('👑 ¿Es admin?:', adminList.includes(numeroSimple));
         console.log('📦 Comando recibido:', comando);
+
+        let tieneMembresia = verificarMembresia(idUsuario);
+        const esAdmin = adminList.includes(numeroSimple);
+        const esDueño = dueños.includes(numeroSimple);
+
+        if (tieneMembresia) {
+            const membresias = require('./membresia').cargarMembresias();
+            const membresiaActual = membresias[numeroSimple];
+            if (membresiaActual && (!membresiaActual.idGrupo || membresiaActual.idGrupo !== idUsuario)) {
+                console.log(`🔄 Actualizando idGrupo para ${numeroSimple} con ${idUsuario}`);
+                actualizarIdGrupo(numeroSimple, idUsuario);
+            }
+        }
+
+        if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
+            console.log(`🔒 Usuario en grupo de Telegram sin permisos: ${numeroSimple}`);
+            return;
+        }
 
         const textoPlano = comando.replace(/[^A-Z0-9]/gi, '');
         const esDNI = /^\d{7,8}$/.test(comando);
@@ -80,18 +102,9 @@ async function manejarMensaje(sock, msg) {
         const esCVU = /^\d{22}$/.test(comando.replace(/\D/g, ''));
         const esConsulta = esDNI || esPatente || esCelular || esCVU;
 
-        const tieneMembresia = verificarMembresia(numeroNormalizado);
-        const esAdmin = adminList.includes(numeroNormalizado);
-        const esDueño = dueños.includes(numero) || dueños.includes(numeroNormalizado);
-
-        if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
-            console.log(`🔒 Usuario en grupo de Telegram sin permisos: ${numero}`);
-            return;
-        }
-
         if (comando === '/ID') {
             console.log('🚀 Ejecutando /id');
-            await manejarId(sock, numero, respuestaDestino, fakeSenderJid, esGrupo);
+            await manejarId(sock, idUsuario, respuestaDestino, fakeSenderJid, esGrupo);
             return;
         }
 
@@ -99,11 +112,11 @@ async function manejarMensaje(sock, msg) {
             console.log('🚀 Ejecutando /adm');
             if (texto.trim() === '/ADM') {
                 await sock.sendMessage(respuestaDestino, {
-                    text: '⚠️ Usá el comando correctamente:\n👉 *Ejemplo:* `/adm 5493815440516 Juan`'
+                    text: '⚠️ *Usá el comando correctamente:*\n\n📌 Ejemplo: /adm 5493815440516 Juan'
                 });
                 return;
             }
-            await manejarAdm(sock, numero, texto, respuestaDestino, adminList);
+            await manejarAdm(sock, idUsuario, texto, respuestaDestino, adminList);
             return;
         }
 
@@ -113,31 +126,65 @@ async function manejarMensaje(sock, msg) {
             return;
         }
 
+        if (comando === '/MEMBRESIAS') {
+            console.log('🚀 Ejecutando /membresias');
+            if (!esAdmin && !esDueño) {
+                await sock.sendMessage(respuestaDestino, {
+                    text: '⛔ *Solo administradores o el dueño pueden ver las membresías activas.*'
+                });
+                return;
+            }
+            await mostrarMembresiasActivas(sock, respuestaDestino);
+            return;
+        }
+
         if (comando.startsWith('/SUB ')) {
             console.log('🚀 Ejecutando /sub');
-            await manejarSub(sock, numero, texto, respuestaDestino, adminList);
+            await manejarSub(sock, idUsuario, texto, respuestaDestino, adminList);
             return;
         }
 
         if (comando === '/ME') {
             console.log('🚀 Ejecutando /me');
-            await manejarMe(sock, numero, respuestaDestino, fakeSenderJid, esGrupo, verificarMembresia, tiempoRestante, adminList);
+            await manejarMe(sock, idUsuario, respuestaDestino, fakeSenderJid, esGrupo, verificarMembresia, tiempoRestante, adminList);
             return;
         }
 
         if (!tieneMembresia && !esAdmin && !esDueño && esConsulta) {
-            if (yaUsoBusquedaGratis(numeroNormalizado)) {
+            if (yaUsoBusquedaGratis(idUsuario)) {
                 await sock.sendMessage(respuestaDestino, {
-                    text: '🔒 Ya usaste tu búsqueda gratuita. Contactá al *3813885182* para obtener membresía.'
+                    text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
                 });
                 return;
             }
-            registrarBusquedaGratis(numeroNormalizado);
+            registrarBusquedaGratis(idUsuario);
+        }
+
+        if (esConsulta) {
+            const agregado = agregarConsulta(sock, {
+                idUsuario,
+                destino: respuestaDestino,
+                fn: async () => {
+                    if (esDNI) {
+                        console.log('🚀 Ejecutando validación de DNI');
+                        await manejarValidacionDni(sock, msg, comando, idUsuario, fakeSenderJid, esGrupo, enProceso, respuestaDestino);
+                    } else {
+                        console.log('🚀 Ejecutando consulta libre');
+                        await manejarConsultaLibre(sock, comando, idUsuario, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
+                    }
+                }
+            });
+
+            if (!agregado) {
+                return;
+            }
+
+            return;
         }
 
         if (comando === '/CEL') {
             console.log('🚀 Ejecutando /cel');
-            await manejarCel(sock, msg, comando, numero);
+            await manejarCel(sock, msg, comando, idUsuario);
             return;
         }
 
@@ -155,51 +202,67 @@ async function manejarMensaje(sock, msg) {
 
         if (comando === '/REGISTRAR') {
             console.log('🚀 Ejecutando /registrar');
-            await manejarRegistrar(sock, msg, numero);
+            await manejarRegistrar(sock, msg, idUsuario);
             return;
         }
 
         if (comando.startsWith('/DNRPA')) {
             console.log('🚀 Ejecutando /dnrpa');
-            await manejarDnrpa(sock, comando, respuestaDestino, fakeSenderJid, esGrupo, numero);
+            await manejarDnrpa(sock, comando, respuestaDestino, fakeSenderJid, esGrupo, idUsuario);
             return;
         }
 
-        if (await manejarComandosExtra(sock, msg, comando, numeroNormalizado)) return;
-        if (enProceso.has(numero)) return;
+        const manejado = await manejarComandosExtra(sock, msg, texto, idUsuario);
+        console.log(`🟢 manejarComandosExtra retornó: ${manejado}`);
+        if (manejado) return;
+
+        if (enProceso.has(idUsuario)) return;
 
         if (esGrupo && !comando.startsWith('/') && !esDNI && !esPatente && !esCelular && !esCVU) {
             console.log('🛑 Ignorado: mensaje no válido para grupo');
             return;
         }
 
-        if (esDNI) {
-            console.log('🚀 Ejecutando validación de DNI');
-            await manejarValidacionDni(sock, msg, comando, numero, fakeSenderJid, esGrupo, enProceso, respuestaDestino);
-            return;
-        }
-
-        const handled = await manejarConsultaLibre(sock, comando, numero, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
-        if (handled) {
-            console.log('✅ Consulta libre manejada');
-            return;
-        }
-
         if (!esGrupo) {
             await sock.sendMessage(from, {
-                text: '❓ Comando no reconocido. Escribí /menu para ver opciones disponibles.',
+                text: '❓ *Comando no reconocido.*\n\n📖 Escribí */menu* para ver las opciones disponibles.'
             });
         }
 
     } catch (err) {
         console.error('❌ Error al manejar mensaje:', err);
         await sock.sendMessage(msg.key.remoteJid, {
-            text: '⚠️ Ocurrió un error procesando tu mensaje. Intentalo de nuevo.',
+            text: '⚠️ *Ocurrió un error procesando tu mensaje.*\n\n❌ Por favor intentá nuevamente.'
         });
     }
 }
 
 module.exports = manejarMensaje;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
