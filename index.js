@@ -19,7 +19,7 @@ async function iniciarBot() {
 
     const sock = makeWASocket({
       auth: state,
-      printQRInTerminal: false, // QR en consola con qrcode-terminal
+      printQRInTerminal: false, // El QR lo mostramos con qrcode-terminal
       logger: P({ level: 'silent' }),
       syncFullHistory: false,
       markOnlineOnConnect: true,
@@ -27,7 +27,7 @@ async function iniciarBot() {
 
     socketGlobal = sock;
 
-    // Guardar credenciales cuando se actualicen
+    // Guardar credenciales actualizadas
     sock.ev.on('creds.update', saveCreds);
 
     // Manejo de conexión y QR
@@ -46,7 +46,7 @@ async function iniciarBot() {
 
         if (code === DisconnectReason.loggedOut) {
           console.log('🔒 Sesión cerrada. Eliminá la carpeta "session" y escaneá el QR nuevamente.');
-          process.exit(0); // Detener el proceso para evitar reconexión infinita
+          process.exit(0); // Detener para evitar reconexión infinita
         } else {
           console.log('🔁 Intentando reconectar en 3 segundos...');
           setTimeout(iniciarBot, 3000);
@@ -66,6 +66,7 @@ async function iniciarBot() {
         if (!msg.message || msg.key.fromMe) continue;
 
         try {
+          // Registrar usuario si es chat privado
           if (!msg.key.remoteJid.endsWith('@g.us')) {
             registrarUsuario(msg.key.remoteJid);
             await enviarBienvenida(sock, msg, msg.key.remoteJid);
@@ -85,13 +86,14 @@ async function iniciarBot() {
       }
     });
 
-    // KeepAlive ping para evitar que Render duerma el contenedor
+    // KeepAlive ping para Render
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       try {
         const client = keepAliveUrl.startsWith('https') ? https : http;
         client.get(keepAliveUrl, res => {
-          res.on('data', () => {}); // Consumir datos para evitar memory leaks
+          // Consumir datos para evitar memory leaks
+          res.on('data', () => {});
         }).on('error', err => {
           console.error('❌ Error en keepAlive ping:', err.message);
         });
@@ -102,11 +104,12 @@ async function iniciarBot() {
 
   } catch (error) {
     console.error('❌ Error al iniciar el bot:', error);
-    process.exit(1); // Termina proceso para evitar estado inconsistente
+    process.exit(1);
   }
 }
 
 iniciarBot();
+
 
 
 

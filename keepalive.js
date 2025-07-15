@@ -14,6 +14,18 @@ app.get('/', (req, res) => {
 // 🟢 Inicia el servidor Express y abre el puerto
 app.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
+
+  // 🚀 Logs para verificar que keepalive.js se ejecutó
+  console.log('📦 keepalive.js fue ejecutado');
+
+  // 🚀 Inicia tu bot normalmente llamando a index.js
+  console.log('🚀 Lanzando index.js desde keepalive.js');
+  try {
+    require('./index');
+  } catch (err) {
+    console.error('❌ Error al iniciar index.js:', err);
+    process.exit(1); // Terminar proceso si falla para reiniciar en Render
+  }
 });
 
 // 🟢 KeepAlive interno: Pings cada 25 segundos para evitar que Render suspenda el servicio
@@ -27,13 +39,6 @@ setInterval(() => {
     console.error('❌ Error en el ping interno:', err.message);
   });
 }, 25 * 1000);
-
-// 🚀 Logs para verificar que keepalive.js se ejecutó
-console.log('📦 keepalive.js fue ejecutado');
-
-// 🚀 Inicia tu bot normalmente llamando a index.js
-console.log('🚀 Lanzando index.js desde keepalive.js');
-require('./index'); // Si tu archivo principal no se llama index.js, cambia esta línea
 
 
 
