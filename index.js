@@ -19,7 +19,7 @@ async function iniciarBot() {
 
     const sock = makeWASocket({
       auth: state,
-      printQRInTerminal: false, // QR en consola con qrcode-terminal
+      printQRInTerminal: false,
       logger: P({ level: 'silent' }),
       syncFullHistory: false,
       markOnlineOnConnect: true,
@@ -27,10 +27,8 @@ async function iniciarBot() {
 
     socketGlobal = sock;
 
-    // Guardar credenciales actualizadas
     sock.ev.on('creds.update', saveCreds);
 
-    // Manejo de conexión y QR
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
       if (qr) {
         qrcode.generate(qr, { small: true });
@@ -46,7 +44,7 @@ async function iniciarBot() {
 
         if (code === DisconnectReason.loggedOut || code === 440) {
           console.log('🔒 Sesión cerrada o desconectada (código 440). Eliminá la carpeta "session" y escaneá el QR nuevamente.');
-          process.exit(0); // Salir para que reinicies con sesión limpia
+          process.exit(0);
         } else {
           console.log('🔁 Intentando reconectar en 3 segundos...');
           setTimeout(iniciarBot, 3000);
@@ -58,7 +56,6 @@ async function iniciarBot() {
       }
     });
 
-    // Escuchar mensajes entrantes
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
 
@@ -66,7 +63,6 @@ async function iniciarBot() {
         if (!msg.message || msg.key.fromMe) continue;
 
         try {
-          // Registrar usuario si es chat privado
           if (!msg.key.remoteJid.endsWith('@g.us')) {
             registrarUsuario(msg.key.remoteJid);
             await enviarBienvenida(sock, msg, msg.key.remoteJid);
@@ -86,13 +82,12 @@ async function iniciarBot() {
       }
     });
 
-    // KeepAlive ping para Render (evita que se duerma el servicio)
+    // KeepAlive ping para evitar que Render duerma el servicio
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       try {
         const client = keepAliveUrl.startsWith('https') ? https : http;
         client.get(keepAliveUrl, res => {
-          // Consumir datos para evitar memory leaks
           res.on('data', () => {});
         }).on('error', err => {
           console.error('❌ Error en keepAlive ping:', err.message);
@@ -109,6 +104,16 @@ async function iniciarBot() {
 }
 
 iniciarBot();
+
+// 🔽 Servidor HTTP para que Render detecte el puerto abierto
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('🌐 Bot activo y funcionando\n');
+}).listen(PORT, () => {
+  console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
+});
+
 
 
 
