@@ -19,7 +19,7 @@ async function iniciarBot() {
 
     const sock = makeWASocket({
       auth: state,
-      printQRInTerminal: false, // El QR lo mostramos con qrcode-terminal
+      printQRInTerminal: false, // QR en consola con qrcode-terminal
       logger: P({ level: 'silent' }),
       syncFullHistory: false,
       markOnlineOnConnect: true,
@@ -44,9 +44,9 @@ async function iniciarBot() {
 
         console.log(`❌ Conexión cerrada. Código: ${code}`);
 
-        if (code === DisconnectReason.loggedOut) {
-          console.log('🔒 Sesión cerrada. Eliminá la carpeta "session" y escaneá el QR nuevamente.');
-          process.exit(0); // Detener para evitar reconexión infinita
+        if (code === DisconnectReason.loggedOut || code === 440) {
+          console.log('🔒 Sesión cerrada o desconectada (código 440). Eliminá la carpeta "session" y escaneá el QR nuevamente.');
+          process.exit(0); // Salir para que reinicies con sesión limpia
         } else {
           console.log('🔁 Intentando reconectar en 3 segundos...');
           setTimeout(iniciarBot, 3000);
@@ -86,7 +86,7 @@ async function iniciarBot() {
       }
     });
 
-    // KeepAlive ping para Render
+    // KeepAlive ping para Render (evita que se duerma el servicio)
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       try {
@@ -109,6 +109,7 @@ async function iniciarBot() {
 }
 
 iniciarBot();
+
 
 
 
