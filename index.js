@@ -20,7 +20,7 @@ async function iniciarBot() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // Cambiado a false para evitar el warning deprecated
+        printQRInTerminal: false, // Evitamos advertencia deprecated
         logger: P({ level: 'silent' }),
         syncFullHistory: false,
         markOnlineOnConnect: true,
@@ -41,14 +41,14 @@ async function iniciarBot() {
                 ? lastDisconnect.error.output.statusCode
                 : 0;
 
-            const debeReconectar = code !== DisconnectReason.loggedOut;
             console.log(`❌ Conexión cerrada. Código: ${code}`);
 
-            if (debeReconectar) {
-                console.log('🔁 Reconectando en 3 segundos...');
-                setTimeout(iniciarBot, 3000);
+            if (code === DisconnectReason.loggedOut) {
+                console.log('🔒 Sesión cerrada. Eliminá la carpeta "session" y escaneá el QR nuevamente.');
+                process.exit(); // Detiene el bot para que Render no entre en bucle
             } else {
-                console.log('🔒 Usuario deslogueado. Escaneá el código QR nuevamente.');
+                console.log('🔁 Intentando reconectar en 3 segundos...');
+                setTimeout(iniciarBot, 3000);
             }
         }
 
@@ -83,13 +83,13 @@ async function iniciarBot() {
         }
     });
 
-    // KeepAlive ping para Render
+    // 🔄 KeepAlive ping para evitar que Render duerma el contenedor
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
         try {
             const client = keepAliveUrl.startsWith('https') ? https : http;
             client.get(keepAliveUrl, res => {
-                res.on('data', () => {}); // Consumir respuesta para evitar memory leaks
+                res.on('data', () => {}); // Consumir datos para evitar memory leaks
             }).on('error', err => {
                 console.error('❌ Error en keepAlive ping:', err.message);
             });
@@ -100,6 +100,7 @@ async function iniciarBot() {
 }
 
 iniciarBot();
+
 
 
 
