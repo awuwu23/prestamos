@@ -6,6 +6,15 @@
   "scripts": {
     "start": "node keepalive.js"
   },
+  "keywords": [
+    "whatsapp",
+    "telegram",
+    "bot",
+    "render",
+    "keepalive"
+  ],
+  "author": "Shelby",
+  "license": "MIT",
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^6.7.18",

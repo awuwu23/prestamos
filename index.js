@@ -86,7 +86,13 @@ async function iniciarBot() {
             }
         }
     });
+
+    // 🟢 KeepAlive Ping interno cada 25 segundos para Render
+    setInterval(() => {
+        require('http').get(process.env.RENDER_EXTERNAL_URL || 'http://localhost:' + (process.env.PORT || 3000));
+    }, 25 * 1000);
 }
 
 iniciarBot();
+
 
