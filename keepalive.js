@@ -11,12 +11,12 @@ app.get('/', (req, res) => {
   res.send('✅ Bot Shelby en línea en Render!');
 });
 
-// 🟢 Inicia el servidor Express
+// 🟢 Inicia el servidor Express y abre el puerto
 app.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
 
-// 🟢 KeepAlive interno: Pings cada 25 segundos
+// 🟢 KeepAlive interno: Pings cada 25 segundos para evitar que Render suspenda el servicio
 setInterval(() => {
   const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   const client = url.startsWith('https') ? https : http;
@@ -28,8 +28,13 @@ setInterval(() => {
   });
 }, 25 * 1000);
 
-// 🚀 Inicia tu bot normalmente
-require('./index'); // Cambia './index' si tu archivo principal tiene otro nombre
+// 🚀 Logs para verificar que keepalive.js se ejecutó
+console.log('📦 keepalive.js fue ejecutado');
+
+// 🚀 Inicia tu bot normalmente llamando a index.js
+console.log('🚀 Lanzando index.js desde keepalive.js');
+require('./index'); // Si tu archivo principal no se llama index.js, cambia esta línea
+
 
 
 
