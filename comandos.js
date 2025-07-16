@@ -29,7 +29,6 @@ const manejarDnrpa = require('./comandos/dnrpa');
 const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
-// Cola centralizada
 const { agregarConsulta, obtenerEstado } = require('./cola');
 
 const enProceso = new Set();
@@ -63,7 +62,6 @@ async function manejarMensaje(sock, msg) {
 
         const rawSender = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
         const numeroNormalizado = normalizarNumero(rawSender);
-
         let idUsuario = numeroNormalizado;
         if (esGrupoWhatsApp) {
             idUsuario = rawSender;
@@ -151,22 +149,21 @@ async function manejarMensaje(sock, msg) {
             return;
         }
 
-        // 🔒 Validación de acceso a consultas sin membresía
-        if (!tieneMembresia && !esAdmin && !esDueño && esConsulta) {
-            if (yaUsoBusquedaGratis(idUsuario)) {
-                await sock.sendMessage(respuestaDestino, {
-                    text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
-                });
-                return;
+        if (esConsulta) {
+            if (!tieneMembresia && !esAdmin && !esDueño) {
+                if (yaUsoBusquedaGratis(idUsuario)) {
+                    await sock.sendMessage(respuestaDestino, {
+                        text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
+                    });
+                    return;
+                } else {
+                    registrarBusquedaGratis(idUsuario);
+                    await sock.sendMessage(respuestaDestino, {
+                        text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
+                    });
+                }
             }
 
-            registrarBusquedaGratis(idUsuario);
-            await sock.sendMessage(respuestaDestino, {
-                text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
-            });
-        }
-
-        if (esConsulta && (tieneMembresia || esAdmin || esDueño || !yaUsoBusquedaGratis(idUsuario))) {
             const agregado = agregarConsulta(sock, {
                 idUsuario,
                 destino: respuestaDestino,
@@ -181,10 +178,7 @@ async function manejarMensaje(sock, msg) {
                 }
             });
 
-            if (!agregado) {
-                return;
-            }
-
+            if (!agregado) return;
             return;
         }
 
@@ -244,6 +238,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
