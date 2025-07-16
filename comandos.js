@@ -49,10 +49,10 @@ async function manejarMensaje(sock, msg) {
         const esGrupoWhatsApp = from?.endsWith?.('@g.us') || false;
         const esGrupo = esGrupoTelegram || esGrupoWhatsApp;
 
-        console.log('\n\uD83D\uDCC5 Nuevo mensaje recibido');
-        console.log('\uD83D\uDCCD Es grupo:', esGrupo);
-        console.log('\uD83D\uDCE8 Remitente (msg.key.participant):', msg.key.participant);
-        console.log('\uD83D\uDCE8 Remitente (msg.key.remoteJid):', msg.key.remoteJid);
+        console.log('\n📥 Nuevo mensaje recibido');
+        console.log('📍 Es grupo:', esGrupo);
+        console.log('📨 Remitente (msg.key.participant):', msg.key.participant);
+        console.log('📨 Remitente (msg.key.remoteJid):', msg.key.remoteJid);
 
         let senderJid = esGrupo ? msg.key.participant : msg.key.remoteJid;
         if (!senderJid) {
@@ -72,10 +72,10 @@ async function manejarMensaje(sock, msg) {
         const respuestaDestino = from;
         const fakeSenderJid = esTelegram(sock) ? `${numeroSimple}` : `${numeroSimple}@s.whatsapp.net`;
 
-        console.log('\uD83D\uDCE4 ID usuario para membresía/admin:', idUsuario);
-        console.log('\uD83D\uDCE4 Número simple:', numeroSimple);
-        console.log('\uD83D\uDC51 ¿Es admin?:', adminList.includes(numeroSimple));
-        console.log('\uD83D\uDCE6 Comando recibido:', comando);
+        console.log('📤 ID usuario para membresía/admin:', idUsuario);
+        console.log('📤 Número simple:', numeroSimple);
+        console.log('👑 ¿Es admin?:', adminList.includes(numeroSimple));
+        console.log('📦 Comando recibido:', comando);
 
         let tieneMembresia = verificarMembresia(idUsuario);
         const esAdmin = adminList.includes(numeroSimple);
@@ -85,13 +85,13 @@ async function manejarMensaje(sock, msg) {
             const membresias = require('./membresia').cargarMembresias();
             const membresiaActual = membresias[numeroSimple];
             if (membresiaActual && (!membresiaActual.idGrupo || membresiaActual.idGrupo !== idUsuario)) {
-                console.log(`\uD83D\uDD04 Actualizando idGrupo para ${numeroSimple} con ${idUsuario}`);
+                console.log(`🔄 Actualizando idGrupo para ${numeroSimple} con ${idUsuario}`);
                 actualizarIdGrupo(numeroSimple, idUsuario);
             }
         }
 
         if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
-            console.log(`\uD83D\uDD12 Usuario en grupo de Telegram sin permisos: ${numeroSimple}`);
+            console.log(`🔒 Usuario en grupo de Telegram sin permisos: ${numeroSimple}`);
             return;
         }
 
