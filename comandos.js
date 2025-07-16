@@ -78,7 +78,7 @@ async function manejarMensaje(sock, msg) {
         console.log('👑 ¿Es admin?:', adminList.includes(numeroSimple));
         console.log('📦 Comando recibido:', comando);
 
-        let tieneMembresia = verificarMembresia(idUsuario);
+        const tieneMembresia = await verificarMembresia(idUsuario);
         const esAdmin = adminList.includes(numeroSimple);
         const esDueño = dueños.includes(numeroSimple);
 
@@ -151,6 +151,7 @@ async function manejarMensaje(sock, msg) {
             return;
         }
 
+        // 🔒 Validación de acceso a consultas sin membresía
         if (!tieneMembresia && !esAdmin && !esDueño && esConsulta) {
             if (yaUsoBusquedaGratis(idUsuario)) {
                 await sock.sendMessage(respuestaDestino, {
@@ -163,10 +164,9 @@ async function manejarMensaje(sock, msg) {
             await sock.sendMessage(respuestaDestino, {
                 text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
             });
-            return;
         }
 
-        if (esConsulta) {
+        if (esConsulta && (tieneMembresia || esAdmin || esDueño || !yaUsoBusquedaGratis(idUsuario))) {
             const agregado = agregarConsulta(sock, {
                 idUsuario,
                 destino: respuestaDestino,
@@ -244,6 +244,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
