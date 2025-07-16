@@ -9,7 +9,8 @@ const {
     registrarBusquedaGratis,
     tiempoRestante,
     actualizarIdGrupo,
-    normalizarNumero
+    normalizarNumero,
+    cargarMembresias
 } = require('./membresia');
 
 const {
@@ -21,14 +22,14 @@ const {
     adminList
 } = require('./comandos/membre');
 
-const { mostrarMembresiasActivas } = require('./membresiactiva'); // ✅ NUEVO
+const { mostrarMembresiasActivas } = require('./membresiactiva');
 const { manejarCel, manejarMenu, manejarCredito } = require('./comandos/utiles');
 const manejarRegistrar = require('./comandos/registrar');
 const manejarDnrpa = require('./comandos/dnrpa');
 const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
-// ✅ Cola centralizada
+// Cola centralizada
 const { agregarConsulta, obtenerEstado } = require('./cola');
 
 const enProceso = new Set();
@@ -82,7 +83,7 @@ async function manejarMensaje(sock, msg) {
         const esDueño = dueños.includes(numeroSimple);
 
         if (tieneMembresia) {
-            const membresias = require('./membresia').cargarMembresias();
+            const membresias = cargarMembresias();
             const membresiaActual = membresias[numeroSimple];
             if (membresiaActual && (!membresiaActual.idGrupo || membresiaActual.idGrupo !== idUsuario)) {
                 console.log(`🔄 Actualizando idGrupo para ${numeroSimple} con ${idUsuario}`);
@@ -243,6 +244,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
