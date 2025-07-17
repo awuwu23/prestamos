@@ -12,23 +12,7 @@ function normalizarNumero(numero) {
   return '549' + n;
 }
 
-// 📥 Cargar archivo de membresías (versión async para usar en verificarMembresia)
-async function cargarMembresiasAsync() {
-  try {
-    if (!fs.existsSync(membresiasPath)) {
-      fs.writeFileSync(membresiasPath, '{}');
-      console.log('📂 Archivo membresías.json creado.');
-      return {};
-    }
-    const data = await fs.promises.readFile(membresiasPath, 'utf-8');
-    return JSON.parse(data);
-  } catch (e) {
-    console.error('❌ [Error] No se pudo leer membresías.json (archivo corrupto).');
-    return {};
-  }
-}
-
-// 📥 Cargar archivo de membresías (sincrónica para otros usos)
+// 📥 Cargar archivo de membresías
 function cargarMembresias() {
   if (!fs.existsSync(membresiasPath)) {
     fs.writeFileSync(membresiasPath, '{}');
@@ -117,18 +101,19 @@ function actualizarIdGrupo(numero, nuevoIdGrupo) {
   guardarMembresias(membresias);
 }
 
-// ✅ Verifica si número, idGrupo o alguno de los ids tiene membresía activa (ahora async)
-async function verificarMembresia(numero) {
+// ✅ Verifica si número, idGrupo o alguno de los ids tiene membresía activa
+function verificarMembresia(numero) {
   const n = normalizarNumero(numero);
-  const membresias = await cargarMembresiasAsync();
+  const membresias = cargarMembresias();
   const ahora = Date.now();
 
   const principal = membresias[n];
-  if (principal && principal.vence > ahora) return true;
+  if (principal && ahora < principal.vence) return true;
 
   for (const clave in membresias) {
     const datos = membresias[clave];
-    if (!datos || datos.vence <= ahora) continue;
+    if (!datos) continue;
+    if (ahora >= datos.vence) continue;
 
     if (datos.idGrupo) {
       if (
@@ -140,7 +125,11 @@ async function verificarMembresia(numero) {
 
     if (datos.ids && Array.isArray(datos.ids)) {
       for (const id of datos.ids) {
-        if (id === n || n.startsWith(id) || id.startsWith(n)) return true;
+        if (
+          id === n ||
+          n.startsWith(id) ||
+          id.startsWith(n)
+        ) return true;
       }
     }
   }
@@ -159,7 +148,8 @@ function tiempoRestante(numero) {
 
   for (const clave in membresias) {
     const datos = membresias[clave];
-    if (!datos || ahora >= datos.vence) continue;
+    if (!datos) continue;
+    if (ahora >= datos.vence) continue;
 
     if (datos.idGrupo) {
       if (
@@ -171,7 +161,11 @@ function tiempoRestante(numero) {
 
     if (datos.ids && Array.isArray(datos.ids)) {
       for (const id of datos.ids) {
-        if (id === n || n.startsWith(id) || id.startsWith(n)) return calcularTiempo(datos.vence - ahora);
+        if (
+          id === n ||
+          n.startsWith(id) ||
+          id.startsWith(n)
+        ) return calcularTiempo(datos.vence - ahora);
       }
     }
   }
@@ -235,6 +229,7 @@ module.exports = {
   normalizarNumero,
   cargarMembresias
 };
+
 
 
 
