@@ -12,7 +12,7 @@ function normalizarNumero(numero) {
   return '549' + n;
 }
 
-// 📥 Cargar membresías (async)
+// 📥 Cargar archivo de membresías (versión async para usar en verificarMembresia)
 async function cargarMembresiasAsync() {
   try {
     if (!fs.existsSync(membresiasPath)) {
@@ -28,7 +28,7 @@ async function cargarMembresiasAsync() {
   }
 }
 
-// 📥 Cargar membresías (sync)
+// 📥 Cargar archivo de membresías (sincrónica para otros usos)
 function cargarMembresias() {
   if (!fs.existsSync(membresiasPath)) {
     fs.writeFileSync(membresiasPath, '{}');
@@ -43,7 +43,7 @@ function cargarMembresias() {
   }
 }
 
-// 💾 Guardar membresías
+// 💾 Guardar archivo de membresías
 function guardarMembresias(membresias) {
   try {
     fs.writeFileSync(membresiasPath, JSON.stringify(membresias, null, 2));
@@ -53,7 +53,7 @@ function guardarMembresias(membresias) {
   }
 }
 
-// ✅ Agregar o renovar membresía
+// ✅ Agregar membresía con número, idGrupo y nombre
 function agregarMembresia(numero, idGrupo = null, nombre = '') {
   const n = normalizarNumero(numero);
   const membresias = cargarMembresias();
@@ -88,7 +88,7 @@ function agregarMembresia(numero, idGrupo = null, nombre = '') {
   console.log(`📆 Válida hasta: ${fechaVencimiento}`);
 }
 
-// ✅ Actualizar idGrupo
+// ✅ Actualizar o asignar un idGrupo a membresía existente
 function actualizarIdGrupo(numero, nuevoIdGrupo) {
   const n = normalizarNumero(numero);
   const membresias = cargarMembresias();
@@ -117,24 +117,64 @@ function actualizarIdGrupo(numero, nuevoIdGrupo) {
   guardarMembresias(membresias);
 }
 
-// ✅ Verifica membresía activa SOLO por número
+// ✅ Verifica si número, idGrupo o alguno de los ids tiene membresía activa (ahora async)
 async function verificarMembresia(numero) {
   const n = normalizarNumero(numero);
   const membresias = await cargarMembresiasAsync();
   const ahora = Date.now();
 
-  const datos = membresias[n];
-  return datos && datos.vence > ahora;
+  const principal = membresias[n];
+  if (principal && principal.vence > ahora) return true;
+
+  for (const clave in membresias) {
+    const datos = membresias[clave];
+    if (!datos || datos.vence <= ahora) continue;
+
+    if (datos.idGrupo) {
+      if (
+        datos.idGrupo === n ||
+        n.startsWith(datos.idGrupo) ||
+        datos.idGrupo.startsWith(n)
+      ) return true;
+    }
+
+    if (datos.ids && Array.isArray(datos.ids)) {
+      for (const id of datos.ids) {
+        if (id === n || n.startsWith(id) || id.startsWith(n)) return true;
+      }
+    }
+  }
+
+  return false;
 }
 
-// 🕓 Tiempo restante
+// 🕓 Devuelve tiempo restante de membresía
 function tiempoRestante(numero) {
   const n = normalizarNumero(numero);
   const membresias = cargarMembresias();
   const ahora = Date.now();
 
-  const data = membresias[n];
+  let data = membresias[n];
   if (data && ahora < data.vence) return calcularTiempo(data.vence - ahora);
+
+  for (const clave in membresias) {
+    const datos = membresias[clave];
+    if (!datos || ahora >= datos.vence) continue;
+
+    if (datos.idGrupo) {
+      if (
+        datos.idGrupo === n ||
+        n.startsWith(datos.idGrupo) ||
+        datos.idGrupo.startsWith(n)
+      ) return calcularTiempo(datos.vence - ahora);
+    }
+
+    if (datos.ids && Array.isArray(datos.ids)) {
+      for (const id of datos.ids) {
+        if (id === n || n.startsWith(id) || id.startsWith(n)) return calcularTiempo(datos.vence - ahora);
+      }
+    }
+  }
 
   return null;
 }
@@ -146,7 +186,7 @@ function calcularTiempo(ms) {
   return { dias, horas };
 }
 
-// ✅ Control búsqueda gratuita
+// ✅ Control de búsqueda gratuita
 function cargarHistorial() {
   if (!fs.existsSync(historialPath)) {
     fs.writeFileSync(historialPath, '{}');
@@ -184,7 +224,7 @@ function registrarBusquedaGratis(numero) {
   console.log(`🆓 Uso gratuito registrado para ${n}.`);
 }
 
-// 📦 Exportar
+// 📦 Exportamos todas las funciones
 module.exports = {
   agregarMembresia,
   actualizarIdGrupo,
