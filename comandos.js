@@ -28,7 +28,7 @@ const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
 // ✅ Cola centralizada
-const { agregarConsulta, obtenerEstado } = require('./cola');
+const { agregarConsulta, obtenerEstado, procesarSiguienteConsulta } = require('./cola');
 
 const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
@@ -175,23 +175,21 @@ async function manejarMensaje(sock, msg) {
                         console.log('🚀 Ejecutando consulta libre');
                         await manejarConsultaLibre(sock, comando, idUsuario, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
                     }
+                    procesarSiguienteConsulta();
                 }
             });
 
-            if (!agregado) {
-                const estado = obtenerEstado();
-                if (estado.tamaño <= 1) {
-                    return await sock.sendMessage(respuestaDestino, {
-                        text: '⏳ *Procesando tu consulta...*'
-                    });
-                }
-                return await sock.sendMessage(respuestaDestino, {
-                    text: `📥 *Tu consulta ya está en la fila!*\n📌 Posición actual: *${estado.tamaño}*`
+            const estado = obtenerEstado();
+            if (estado.tamaño === 1) {
+                await sock.sendMessage(respuestaDestino, {
+                    text: '⏳ *Procesando tu consulta...*'
                 });
+                procesarSiguienteConsulta();
+                return;
             }
 
             return await sock.sendMessage(respuestaDestino, {
-                text: `⏳ *Consulta añadida a la fila!*\n📌 Posición: *${obtenerEstado().tamaño}*`
+                text: `⏳ *Consulta añadida a la fila!*\n📌 Posición: *${estado.tamaño}*`
             });
         }
 
@@ -223,6 +221,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
