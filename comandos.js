@@ -28,7 +28,7 @@ const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
 // ✅ Cola centralizada
-const { agregarConsulta, obtenerEstado } = require('./cola');
+const { agregarConsulta, obtenerEstado, procesarSiguiente } = require('./cola');
 
 const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
@@ -53,7 +53,7 @@ async function manejarMensaje(sock, msg) {
         console.log('📨 Remitente (msg.key.participant):', msg.key.participant);
         console.log('📨 Remitente (msg.key.remoteJid):', msg.key.remoteJid);
 
-        let senderJid = esGrupo ? msg.key.participant : msg.key.remoteJid;
+        const senderJid = esGrupo ? msg.key.participant : msg.key.remoteJid;
         if (!senderJid) {
             console.warn('❌ No se pudo determinar el remitente.');
             return;
@@ -61,12 +61,12 @@ async function manejarMensaje(sock, msg) {
 
         const rawSender = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
         const numeroSimple = normalizarNumero(rawSender);
-        const fakeSenderJid = esTelegram(sock) ? `${numeroSimple}` : `${numeroSimple}@s.whatsapp.net`;
+        const idUsuario = numeroSimple;
         const respuestaDestino = from;
+        const fakeSenderJid = esTelegram(sock) ? `${numeroSimple}` : `${numeroSimple}@s.whatsapp.net`;
 
         const esAdmin = adminList.includes(numeroSimple);
         const esDueño = dueños.includes(numeroSimple);
-        const idUsuario = numeroSimple;
 
         console.log('📤 ID usuario para membresía/admin:', idUsuario);
         console.log('📤 Número simple:', numeroSimple);
@@ -175,24 +175,22 @@ async function manejarMensaje(sock, msg) {
                         console.log('🚀 Ejecutando consulta libre');
                         await manejarConsultaLibre(sock, comando, idUsuario, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
                     }
+                    procesarSiguiente(sock);
                 }
             });
 
-            if (!agregado) {
-                const estado = obtenerEstado();
-                if (estado.tamaño <= 1) {
-                    return await sock.sendMessage(respuestaDestino, {
-                        text: '⏳ *Procesando tu consulta...*'
-                    });
-                }
-                return await sock.sendMessage(respuestaDestino, {
-                    text: `📥 *Tu consulta ya está en la fila!*\n📌 Posición actual: *${estado.tamaño}*`
+            const estado = obtenerEstado();
+            if (estado.tamaño === 1) {
+                await sock.sendMessage(respuestaDestino, {
+                    text: '⏳ *Procesando tu consulta...*'
                 });
+                return;
             }
 
-            return await sock.sendMessage(respuestaDestino, {
-                text: `⏳ *Consulta añadida a la fila!*\n📌 Posición: *${obtenerEstado().tamaño}*`
+            await sock.sendMessage(respuestaDestino, {
+                text: `⏳ *Consulta añadida a la fila!*\n📌 Posición: *${estado.tamaño}*`
             });
+            return;
         }
 
         // === Comandos extra ===
@@ -223,6 +221,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
