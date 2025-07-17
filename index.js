@@ -53,6 +53,10 @@ async function iniciarBot() {
 
       if (connection === 'open') {
         console.log('✅ Bot conectado a WhatsApp');
+
+        // 🔗 Mostrar grupos donde el bot está presente (opcional)
+        // const grupos = await sock.groupFetchAllParticipating();
+        // console.log('📋 Grupos detectados:', Object.keys(grupos));
       }
     });
 
@@ -129,6 +133,7 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
+
 
 
 
