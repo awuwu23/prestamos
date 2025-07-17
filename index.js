@@ -77,13 +77,13 @@ async function iniciarBot() {
         }
 
         try {
-          // 🟢 Registrar usuario y bienvenida solo en chats privados
+          // 🟢 Solo registrar usuarios en chats privados
           if (!isGroup) {
             registrarUsuario(from);
             await enviarBienvenida(sock, msg, from);
           }
 
-          // ⚙️ Procesar mensaje en cualquier caso (privado o grupo)
+          // ⚙️ Manejar el mensaje en cualquier tipo de chat
           await manejarMensaje(sock, msg);
         } catch (err) {
           console.error('❌ Error manejando mensaje:', err);
@@ -98,7 +98,7 @@ async function iniciarBot() {
       }
     });
 
-    // KeepAlive ping para evitar que Render duerma el servicio
+    // 🟢 Keep-alive ping para Render
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       try {
@@ -121,12 +121,22 @@ async function iniciarBot() {
 
 iniciarBot();
 
-// 🔽 Servidor HTTP para que Render detecte el puerto abierto
+// 🌐 Servidor HTTP para Render (una sola vez si el puerto está libre)
 const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('🌐 Bot activo y funcionando\n');
-}).listen(PORT, () => {
+});
+
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`⚠️ Puerto ${PORT} ya está en uso. Probablemente ya esté corriendo el servidor.`);
+  } else {
+    console.error('❌ Error al iniciar servidor HTTP:', err);
+  }
+});
+
+server.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
 
