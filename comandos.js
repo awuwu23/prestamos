@@ -35,7 +35,7 @@ const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
 
 function esTelegram(sock) {
-    return typeof sock.sendMessage === 'function' && !sock.ev;
+    return false; // 🔧 Desactivado porque no usás Telegram para este bot
 }
 
 async function manejarMensaje(sock, msg) {
@@ -45,9 +45,9 @@ async function manejarMensaje(sock, msg) {
         const comando = texto.toUpperCase();
         const from = msg.key.remoteJid;
 
-        const esGrupoTelegram = esTelegram(sock) && from && from.startsWith('-100');
+        const esGrupoTelegram = false;
         const esGrupoWhatsApp = from?.endsWith?.('@g.us') || false;
-        const esGrupo = esGrupoTelegram || esGrupoWhatsApp;
+        const esGrupo = esGrupoWhatsApp;
 
         console.log('\n📥 Nuevo mensaje recibido');
         console.log('📍 Es grupo:', esGrupo);
@@ -69,7 +69,7 @@ async function manejarMensaje(sock, msg) {
 
         const numeroSimple = normalizarNumero(rawSender);
         const respuestaDestino = from;
-        const fakeSenderJid = esTelegram(sock) ? `${numeroSimple}` : `${numeroSimple}@s.whatsapp.net`;
+        const fakeSenderJid = `${numeroSimple}@s.whatsapp.net`;
 
         console.log('📤 ID usuario para membresía/admin:', idUsuario);
         console.log('📤 Número simple:', numeroSimple);
@@ -87,11 +87,6 @@ async function manejarMensaje(sock, msg) {
                 console.log(`🔄 Actualizando idGrupo para ${numeroSimple} con ${idUsuario}`);
                 actualizarIdGrupo(numeroSimple, idUsuario);
             }
-        }
-
-        if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
-            console.log(`🔒 Usuario en grupo de Telegram sin permisos: ${numeroSimple}`);
-            return;
         }
 
         const textoPlano = comando.replace(/[^A-Z0-9]/gi, '');
@@ -218,7 +213,8 @@ async function manejarMensaje(sock, msg) {
 
         if (enProceso.has(idUsuario)) return;
 
-        if (esGrupo && !comando.startsWith('/') && !esDNI && !esPatente && !esCelular && !esCVU) {
+        // ⚠️ Aceptar cualquier comando con barra desde grupo
+        if (esGrupo && !comando.startsWith('/') && !esConsulta) {
             console.log('🛑 Ignorado: mensaje no válido para grupo');
             return;
         }
@@ -238,6 +234,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
