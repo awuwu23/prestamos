@@ -53,10 +53,6 @@ async function iniciarBot() {
 
       if (connection === 'open') {
         console.log('✅ Bot conectado a WhatsApp');
-
-        // 🔗 Mostrar grupos donde el bot está presente (opcional)
-        // const grupos = await sock.groupFetchAllParticipating();
-        // console.log('📋 Grupos detectados:', Object.keys(grupos));
       }
     });
 
@@ -65,7 +61,7 @@ async function iniciarBot() {
       if (type !== 'notify') return;
 
       for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
+        if (!msg.message || msg.key.fromMe || !msg.key.remoteJid) continue;
 
         const from = msg.key.remoteJid;
         const isGroup = from.endsWith('@g.us');
