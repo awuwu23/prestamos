@@ -63,11 +63,15 @@ async function iniciarBot() {
         if (!msg.message || msg.key.fromMe) continue;
 
         try {
-          if (!msg.key.remoteJid.endsWith('@g.us')) {
+          const isGroup = msg.key.remoteJid.endsWith('@g.us');
+
+          // 🟢 Registrar usuario y bienvenida solo en chats privados
+          if (!isGroup) {
             registrarUsuario(msg.key.remoteJid);
             await enviarBienvenida(sock, msg, msg.key.remoteJid);
           }
 
+          // ⚙️ Procesar mensaje en cualquier caso (privado o grupo)
           await manejarMensaje(sock, msg);
         } catch (err) {
           console.error('❌ Error manejando mensaje:', err);
@@ -113,6 +117,7 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
+
 
 
 

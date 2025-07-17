@@ -156,29 +156,29 @@ async function manejarMensaje(sock, msg) {
                         text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
                     });
                     return;
-                } else {
-                    registrarBusquedaGratis(idUsuario);
-                    await sock.sendMessage(respuestaDestino, {
-                        text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
-                    });
-
-                    const agregado = agregarConsulta(sock, {
-                        idUsuario,
-                        destino: respuestaDestino,
-                        fn: async () => {
-                            if (esDNI) {
-                                console.log('🚀 Ejecutando validación de DNI');
-                                await manejarValidacionDni(sock, msg, comando, idUsuario, fakeSenderJid, esGrupo, enProceso, respuestaDestino);
-                            } else {
-                                console.log('🚀 Ejecutando consulta libre');
-                                await manejarConsultaLibre(sock, comando, idUsuario, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
-                            }
-                        }
-                    });
-
-                    if (!agregado) return;
-                    return;
                 }
+
+                registrarBusquedaGratis(idUsuario);
+                await sock.sendMessage(respuestaDestino, {
+                    text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
+                });
+
+                const agregado = agregarConsulta(sock, {
+                    idUsuario,
+                    destino: respuestaDestino,
+                    fn: async () => {
+                        if (esDNI) {
+                            console.log('🚀 Ejecutando validación de DNI');
+                            await manejarValidacionDni(sock, msg, comando, idUsuario, fakeSenderJid, esGrupo, enProceso, respuestaDestino);
+                        } else {
+                            console.log('🚀 Ejecutando consulta libre');
+                            await manejarConsultaLibre(sock, comando, idUsuario, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
+                        }
+                    }
+                });
+
+                if (!agregado) return;
+                return;
             }
 
             const agregado = agregarConsulta(sock, {
@@ -255,6 +255,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
