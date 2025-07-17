@@ -29,7 +29,6 @@ const manejarDnrpa = require('./comandos/dnrpa');
 const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
-// Cola centralizada
 const { agregarConsulta, obtenerEstado } = require('./cola');
 
 const enProceso = new Set();
@@ -63,7 +62,6 @@ async function manejarMensaje(sock, msg) {
 
         const rawSender = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
         const numeroNormalizado = normalizarNumero(rawSender);
-
         let idUsuario = numeroNormalizado;
         if (esGrupoWhatsApp) {
             idUsuario = rawSender;
@@ -78,7 +76,7 @@ async function manejarMensaje(sock, msg) {
         console.log('👑 ¿Es admin?:', adminList.includes(numeroSimple));
         console.log('📦 Comando recibido:', comando);
 
-        let tieneMembresia = verificarMembresia(idUsuario);
+        const tieneMembresia = await verificarMembresia(idUsuario);
         const esAdmin = adminList.includes(numeroSimple);
         const esDueño = dueños.includes(numeroSimple);
 
@@ -151,22 +149,38 @@ async function manejarMensaje(sock, msg) {
             return;
         }
 
-        if (!tieneMembresia && !esAdmin && !esDueño && esConsulta) {
-            if (yaUsoBusquedaGratis(idUsuario)) {
+        if (esConsulta) {
+            if (!tieneMembresia && !esAdmin && !esDueño) {
+                if (yaUsoBusquedaGratis(idUsuario)) {
+                    await sock.sendMessage(respuestaDestino, {
+                        text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
+                    });
+                    return;
+                }
+
+                registrarBusquedaGratis(idUsuario);
                 await sock.sendMessage(respuestaDestino, {
-                    text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
+                    text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
                 });
+
+                const agregado = agregarConsulta(sock, {
+                    idUsuario,
+                    destino: respuestaDestino,
+                    fn: async () => {
+                        if (esDNI) {
+                            console.log('🚀 Ejecutando validación de DNI');
+                            await manejarValidacionDni(sock, msg, comando, idUsuario, fakeSenderJid, esGrupo, enProceso, respuestaDestino);
+                        } else {
+                            console.log('🚀 Ejecutando consulta libre');
+                            await manejarConsultaLibre(sock, comando, idUsuario, esGrupo, fakeSenderJid, respuestaDestino, enProceso);
+                        }
+                    }
+                });
+
+                if (!agregado) return;
                 return;
             }
 
-            registrarBusquedaGratis(idUsuario);
-            await sock.sendMessage(respuestaDestino, {
-                text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
-            });
-            return;
-        }
-
-        if (esConsulta) {
             const agregado = agregarConsulta(sock, {
                 idUsuario,
                 destino: respuestaDestino,
@@ -181,10 +195,7 @@ async function manejarMensaje(sock, msg) {
                 }
             });
 
-            if (!agregado) {
-                return;
-            }
-
+            if (!agregado) return;
             return;
         }
 
@@ -244,6 +255,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
