@@ -45,7 +45,6 @@ async function manejarMensaje(sock, msg) {
         const comando = texto.toUpperCase();
         const from = msg.key.remoteJid;
 
-        // Detectamos si es grupo de Telegram o WhatsApp
         const esGrupoTelegram = esTelegram(sock) && from && from.startsWith('-100');
         const esGrupoWhatsApp = from?.endsWith?.('@g.us') || false;
         const esGrupo = esGrupoTelegram || esGrupoWhatsApp;
@@ -55,10 +54,9 @@ async function manejarMensaje(sock, msg) {
         console.log('📨 Remitente (msg.key.participant):', msg.key.participant);
         console.log('📨 Remitente (msg.key.remoteJid):', msg.key.remoteJid);
 
-        // ✅ Corrección de identificación del remitente
-        let senderJid = msg.key.participant || msg.participant || msg.key.remoteJid;
+        let senderJid = esGrupo ? msg.key.participant : msg.key.remoteJid;
         if (!senderJid) {
-            console.warn('❌ No se pudo determinar el remitente (ni key.participant ni participant ni remoteJid).');
+            console.warn('❌ No se pudo determinar el remitente.');
             return;
         }
 
