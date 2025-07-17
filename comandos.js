@@ -9,8 +9,7 @@ const {
     registrarBusquedaGratis,
     tiempoRestante,
     actualizarIdGrupo,
-    normalizarNumero,
-    cargarMembresias
+    normalizarNumero
 } = require('./membresia');
 
 const {
@@ -22,20 +21,20 @@ const {
     adminList
 } = require('./comandos/membre');
 
-const { mostrarMembresiasActivas } = require('./membresiactiva');
 const { manejarCel, manejarMenu, manejarCredito } = require('./comandos/utiles');
 const manejarRegistrar = require('./comandos/registrar');
 const manejarDnrpa = require('./comandos/dnrpa');
 const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
+// ✅ Cola centralizada
 const { agregarConsulta, obtenerEstado } = require('./cola');
 
 const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
 
 function esTelegram(sock) {
-    return false; // 🔧 Desactivado porque no usás Telegram para este bot
+    return typeof sock.sendMessage === 'function' && !sock.ev;
 }
 
 async function manejarMensaje(sock, msg) {
@@ -45,9 +44,9 @@ async function manejarMensaje(sock, msg) {
         const comando = texto.toUpperCase();
         const from = msg.key.remoteJid;
 
-        const esGrupoTelegram = false;
+        const esGrupoTelegram = esTelegram(sock) && from && from.startsWith('-100');
         const esGrupoWhatsApp = from?.endsWith?.('@g.us') || false;
-        const esGrupo = esGrupoWhatsApp;
+        const esGrupo = esGrupoTelegram || esGrupoWhatsApp;
 
         console.log('\n📥 Nuevo mensaje recibido');
         console.log('📍 Es grupo:', esGrupo);
@@ -62,6 +61,7 @@ async function manejarMensaje(sock, msg) {
 
         const rawSender = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
         const numeroNormalizado = normalizarNumero(rawSender);
+
         let idUsuario = numeroNormalizado;
         if (esGrupoWhatsApp) {
             idUsuario = rawSender;
@@ -69,24 +69,29 @@ async function manejarMensaje(sock, msg) {
 
         const numeroSimple = normalizarNumero(rawSender);
         const respuestaDestino = from;
-        const fakeSenderJid = `${numeroSimple}@s.whatsapp.net`;
+        const fakeSenderJid = esTelegram(sock) ? `${numeroSimple}` : `${numeroSimple}@s.whatsapp.net`;
 
         console.log('📤 ID usuario para membresía/admin:', idUsuario);
         console.log('📤 Número simple:', numeroSimple);
         console.log('👑 ¿Es admin?:', adminList.includes(numeroSimple));
         console.log('📦 Comando recibido:', comando);
 
-        const tieneMembresia = await verificarMembresia(idUsuario);
+        let tieneMembresia = verificarMembresia(idUsuario);
         const esAdmin = adminList.includes(numeroSimple);
         const esDueño = dueños.includes(numeroSimple);
 
         if (tieneMembresia) {
-            const membresias = cargarMembresias();
+            const membresias = require('./membresia').cargarMembresias();
             const membresiaActual = membresias[numeroSimple];
             if (membresiaActual && (!membresiaActual.idGrupo || membresiaActual.idGrupo !== idUsuario)) {
                 console.log(`🔄 Actualizando idGrupo para ${numeroSimple} con ${idUsuario}`);
                 actualizarIdGrupo(numeroSimple, idUsuario);
             }
+        }
+
+        if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
+            console.log(`🔒 Usuario en grupo de Telegram sin permisos: ${numeroSimple}`);
+            return;
         }
 
         const textoPlano = comando.replace(/[^A-Z0-9]/gi, '');
@@ -120,18 +125,6 @@ async function manejarMensaje(sock, msg) {
             return;
         }
 
-        if (comando === '/MEMBRESIAS') {
-            console.log('🚀 Ejecutando /membresias');
-            if (!esAdmin && !esDueño) {
-                await sock.sendMessage(respuestaDestino, {
-                    text: '⛔ *Solo administradores o el dueño pueden ver las membresías activas.*'
-                });
-                return;
-            }
-            await mostrarMembresiasActivas(sock, respuestaDestino);
-            return;
-        }
-
         if (comando.startsWith('/SUB ')) {
             console.log('🚀 Ejecutando /sub');
             await manejarSub(sock, idUsuario, texto, respuestaDestino, adminList);
@@ -151,11 +144,7 @@ async function manejarMensaje(sock, msg) {
                 });
                 return;
             }
-
             registrarBusquedaGratis(idUsuario);
-            await sock.sendMessage(respuestaDestino, {
-                text: '✅ *Consulta gratuita procesada.*\n\n💡 Recordá que es la única sin membresía.\nPara más consultas, contactá al 3813885182.'
-            });
         }
 
         if (esConsulta) {
@@ -173,7 +162,24 @@ async function manejarMensaje(sock, msg) {
                 }
             });
 
-            if (!agregado) return;
+            // Si no hay más consultas, procesamos la consulta de inmediato
+            if (!agregado) {
+                const estado = obtenerEstado();
+                if (estado.tamaño <= 1) {
+                    await sock.sendMessage(respuestaDestino, {
+                        text: '⏳ *Procesando tu consulta...*'
+                    });
+                    return;
+                }
+                await sock.sendMessage(respuestaDestino, {
+                    text: `📥 *Tu consulta ya está en la fila!*\n📌 Posición actual: *${estado.tamaño}*`
+                });
+                return;
+            }
+
+            await sock.sendMessage(respuestaDestino, {
+                text: `⏳ *Consulta añadida a la fila!*\n📌 Posición: *${obtenerEstado().tamaño}*`
+            });
             return;
         }
 
@@ -213,8 +219,7 @@ async function manejarMensaje(sock, msg) {
 
         if (enProceso.has(idUsuario)) return;
 
-        // ⚠️ Aceptar cualquier comando con barra desde grupo
-        if (esGrupo && !comando.startsWith('/') && !esConsulta) {
+        if (esGrupo && !comando.startsWith('/') && !esDNI && !esPatente && !esCelular && !esCVU) {
             console.log('🛑 Ignorado: mensaje no válido para grupo');
             return;
         }
