@@ -77,7 +77,6 @@ async function buscarCVUTelegram(cvuCrudo, sock, respuestaDestino, numeroRemiten
           const contenido = msgTelegram.message.trim();
           console.log('📩 Texto recibido del bot:', contenido);
 
-          // Detectar si el bot aún está procesando
           if (/buscando datos|procesando/i.test(contenido)) {
             procesando = true;
             console.log('⏳ Bot aún procesando, esperando...');
@@ -96,7 +95,7 @@ async function buscarCVUTelegram(cvuCrudo, sock, respuestaDestino, numeroRemiten
             fs.writeFileSync(rutaArchivo, buffer);
             imagenDescargada = rutaArchivo;
             console.log('✅ Imagen descargada en', rutaArchivo);
-            procesando = false; // Si ya llegó la imagen, podemos terminar
+            procesando = false;
           } catch (err) {
             console.error('❌ Error al descargar imagen:', err);
           }
@@ -106,12 +105,12 @@ async function buscarCVUTelegram(cvuCrudo, sock, respuestaDestino, numeroRemiten
         timeout = setTimeout(async () => {
           if (procesando) {
             console.log('⏳ Timeout parcial, bot sigue procesando...');
-            return; // Esperar más si aún está procesando
+            return;
           }
           client.removeEventHandler(handler);
           await procesarRespuestas(sock, respuestaDestino, textos, imagenDescargada);
           resolve();
-        }, 8000); // espera 8s entre mensajes antes de cerrar
+        }, 15000); // ⏱️ Espera 15 segundos entre mensajes
       };
 
       client.addEventHandler(handler, new NewMessage({}));
@@ -119,7 +118,7 @@ async function buscarCVUTelegram(cvuCrudo, sock, respuestaDestino, numeroRemiten
       timeout = setTimeout(() => {
         client.removeEventHandler(handler);
         reject(new Error('⏰ Timeout total esperando respuesta del bot de Telegram'));
-      }, 60000); // 60s máximo total
+      }, 90000); // ⏱️ Espera máxima total de 90 segundos
     });
 
   } catch (err) {
@@ -147,7 +146,7 @@ async function procesarRespuestas(sock, to, textos, imagen) {
       image: buffer,
       caption: '📄 *Informe adjunto*',
     });
-    fs.unlinkSync(imagen); // elimina archivo temporal
+    fs.unlinkSync(imagen);
     console.log('🗑️ Imagen temporal eliminada.');
   }
 }
