@@ -124,11 +124,11 @@ async function verificarMembresia(numero) {
   const ahora = Date.now();
 
   const principal = membresias[n];
-  if (principal && ahora < principal.vence) return true;
+  if (principal && principal.vence > ahora) return true;
 
   for (const clave in membresias) {
     const datos = membresias[clave];
-    if (!datos || ahora >= datos.vence) continue;
+    if (!datos || datos.vence <= ahora) continue;
 
     if (datos.idGrupo) {
       if (
@@ -235,6 +235,7 @@ module.exports = {
   normalizarNumero,
   cargarMembresias
 };
+
 
 
 
