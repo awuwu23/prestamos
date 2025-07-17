@@ -57,18 +57,30 @@ async function iniciarBot() {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      console.log('📩 Evento messages.upsert tipo:', type);
       if (type !== 'notify') return;
 
       for (const msg of messages) {
         if (!msg.message || msg.key.fromMe) continue;
 
-        try {
-          const isGroup = msg.key.remoteJid.endsWith('@g.us');
+        const from = msg.key.remoteJid;
+        const isGroup = from.endsWith('@g.us');
+        const sender = isGroup ? msg.key.participant : msg.key.remoteJid;
 
+        console.log('🔍 Mensaje recibido desde:', from);
+        console.log('👥 Es grupo:', isGroup);
+        console.log('👤 Remitente:', sender);
+
+        if (!sender) {
+          console.warn('⚠️ No se pudo determinar el remitente del mensaje.');
+          continue;
+        }
+
+        try {
           // 🟢 Registrar usuario y bienvenida solo en chats privados
           if (!isGroup) {
-            registrarUsuario(msg.key.remoteJid);
-            await enviarBienvenida(sock, msg, msg.key.remoteJid);
+            registrarUsuario(from);
+            await enviarBienvenida(sock, msg, from);
           }
 
           // ⚙️ Procesar mensaje en cualquier caso (privado o grupo)
@@ -76,7 +88,7 @@ async function iniciarBot() {
         } catch (err) {
           console.error('❌ Error manejando mensaje:', err);
           try {
-            await sock.sendMessage(msg.key.remoteJid, {
+            await sock.sendMessage(from, {
               text: '⚠️ Ocurrió un error al procesar el mensaje.',
             });
           } catch (e) {
