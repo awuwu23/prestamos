@@ -54,9 +54,10 @@ async function manejarMensaje(sock, msg) {
         console.log('📨 Remitente (msg.key.participant):', msg.key.participant);
         console.log('📨 Remitente (msg.key.remoteJid):', msg.key.remoteJid);
 
-        let senderJid = esGrupo ? msg.key.participant : msg.key.remoteJid;
+        // ✅ Corrección acá:
+        let senderJid = msg.key.participant || msg.participant || msg.key.remoteJid;
         if (!senderJid) {
-            console.warn('❌ No se pudo determinar el remitente.');
+            console.warn('❌ No se pudo determinar el remitente (ni key.participant ni participant ni remoteJid).');
             return;
         }
 
@@ -255,6 +256,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
