@@ -1,119 +1,234 @@
-const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
-const P = require('pino');
-const { Boom } = require('@hapi/boom');
+const fs = require('fs');
+const path = require('path');
 
-const manejarMensaje = require('./comandos');
-const { registrarUsuario } = require('./anunciar');
-const { enviarBienvenida } = require('./bienvenida');
+const membresiasPath = path.join(__dirname, 'membresias.json');
+const historialPath = path.join(__dirname, 'historial_gratis.json');
 
-const http = require('http');
-const https = require('https');
+// 🔄 Normaliza número al formato 549XXXXXXXXXX
+function normalizarNumero(numero) {
+  let n = numero.toString().replace(/\D/g, '');
+  if (n.startsWith('549')) return n;
+  if (n.startsWith('54')) return '549' + n.slice(2);
+  return '549' + n;
+}
 
-let socketGlobal = null;
-
-async function iniciarBot() {
+// 📥 Cargar archivo de membresías
+function cargarMembresias() {
+  if (!fs.existsSync(membresiasPath)) {
+    fs.writeFileSync(membresiasPath, '{}');
+    console.log('📂 Archivo membresías.json creado.');
+    return {};
+  }
   try {
-    const { state, saveCreds } = await useMultiFileAuthState('session');
-
-    const sock = makeWASocket({
-      auth: state,
-      printQRInTerminal: false,
-      logger: P({ level: 'silent' }),
-      syncFullHistory: false,
-      markOnlineOnConnect: true,
-    });
-
-    socketGlobal = sock;
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
-      if (qr) {
-        qrcode.generate(qr, { small: true });
-        console.log('📲 Escaneá el código QR para iniciar sesión.');
-      }
-
-      if (connection === 'close') {
-        const code = lastDisconnect?.error instanceof Boom
-          ? lastDisconnect.error.output.statusCode
-          : 0;
-
-        console.log(`❌ Conexión cerrada. Código: ${code}`);
-
-        if (code === DisconnectReason.loggedOut || code === 440) {
-          console.log('🔒 Sesión cerrada o desconectada (código 440). Eliminá la carpeta "session" y escaneá el QR nuevamente.');
-          process.exit(0);
-        } else {
-          console.log('🔁 Intentando reconectar en 3 segundos...');
-          setTimeout(iniciarBot, 3000);
-        }
-      }
-
-      if (connection === 'open') {
-        console.log('✅ Bot conectado a WhatsApp');
-      }
-    });
-
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
-
-      for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe) continue;
-
-        try {
-          if (!msg.key.remoteJid.endsWith('@g.us')) {
-            registrarUsuario(msg.key.remoteJid);
-            await enviarBienvenida(sock, msg, msg.key.remoteJid);
-          }
-
-          await manejarMensaje(sock, msg);
-        } catch (err) {
-          console.error('❌ Error manejando mensaje:', err);
-          try {
-            await sock.sendMessage(msg.key.remoteJid, {
-              text: '⚠️ Ocurrió un error al procesar el mensaje.',
-            });
-          } catch (e) {
-            console.error('❌ No se pudo enviar mensaje de error:', e);
-          }
-        }
-      }
-    });
-
-    // KeepAlive ping para evitar que Render duerma el servicio
-    const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
-    setInterval(() => {
-      try {
-        const client = keepAliveUrl.startsWith('https') ? https : http;
-        client.get(keepAliveUrl, res => {
-          res.on('data', () => {});
-        }).on('error', err => {
-          console.error('❌ Error en keepAlive ping:', err.message);
-        });
-      } catch (err) {
-        console.error('❌ Excepción en keepAlive:', err.message);
-      }
-    }, 25 * 1000);
-
-  } catch (error) {
-    console.error('❌ Error al iniciar el bot:', error);
-    process.exit(1);
+    return JSON.parse(fs.readFileSync(membresiasPath));
+  } catch (e) {
+    console.error('❌ [Error] No se pudo leer membresías.json (archivo corrupto).');
+    return {};
   }
 }
 
-iniciarBot();
+// 💾 Guardar archivo de membresías
+function guardarMembresias(membresias) {
+  try {
+    fs.writeFileSync(membresiasPath, JSON.stringify(membresias, null, 2));
+    console.log('✅ Membresías guardadas correctamente.');
+  } catch (err) {
+    console.error('❌ [Error] No se pudo guardar membresías:', err);
+  }
+}
 
-// 🔽 Servidor HTTP para que Render detecte el puerto abierto
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('🌐 Bot activo y funcionando\n');
-}).listen(PORT, () => {
-  console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
-});
+// ✅ Agregar membresía con número, idGrupo y nombre
+function agregarMembresia(numero, idGrupo = null, nombre = '') {
+  const n = normalizarNumero(numero);
+  const membresias = cargarMembresias();
+  const ahora = Date.now();
+  const unMes = 30 * 24 * 60 * 60 * 1000;
 
+  if (!membresias[n]) {
+    membresias[n] = {
+      inicio: ahora,
+      vence: ahora + unMes,
+      nombre,
+      idGrupo: idGrupo || null,
+      ids: []
+    };
+    console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
+  } else {
+    membresias[n].inicio = ahora;
+    membresias[n].vence = ahora + unMes;
+    membresias[n].nombre = nombre || membresias[n].nombre;
+
+    if (idGrupo && !membresias[n].ids.includes(idGrupo) && membresias[n].idGrupo !== idGrupo) {
+      membresias[n].ids.push(idGrupo);
+      console.log(`➕ ID extendido agregado: ${idGrupo} para ${n}`);
+    } else {
+      console.log(`🔄 Membresía renovada para ${n} (${nombre}).`);
+    }
+  }
+
+  guardarMembresias(membresias);
+
+  const fechaVencimiento = new Date(ahora + unMes).toLocaleString();
+  console.log(`📆 Válida hasta: ${fechaVencimiento}`);
+}
+
+// ✅ Actualizar o asignar un idGrupo a membresía existente
+function actualizarIdGrupo(numero, nuevoIdGrupo) {
+  const n = normalizarNumero(numero);
+  const membresias = cargarMembresias();
+
+  if (!membresias[n]) {
+    console.warn(`⚠️ [Advertencia] No existe membresía para ${n}.`);
+    return;
+  }
+
+  if (membresias[n].idGrupo === nuevoIdGrupo || (membresias[n].ids && membresias[n].ids.includes(nuevoIdGrupo))) {
+    console.log(`ℹ️ El ID extendido ${nuevoIdGrupo} ya está vinculado a ${n}.`);
+    return;
+  }
+
+  if (!membresias[n].idGrupo) {
+    membresias[n].idGrupo = nuevoIdGrupo;
+    console.log(`✅ ID principal vinculado: ${nuevoIdGrupo} para ${n}.`);
+  } else {
+    if (!Array.isArray(membresias[n].ids)) membresias[n].ids = [];
+    if (!membresias[n].ids.includes(nuevoIdGrupo)) {
+      membresias[n].ids.push(nuevoIdGrupo);
+      console.log(`➕ ID adicional vinculado: ${nuevoIdGrupo} para ${n}.`);
+    }
+  }
+
+  guardarMembresias(membresias);
+}
+
+// ✅ Verifica si número, idGrupo o alguno de los ids tiene membresía activa
+function verificarMembresia(numero) {
+  const n = normalizarNumero(numero);
+  const membresias = cargarMembresias();
+  const ahora = Date.now();
+
+  const principal = membresias[n];
+  if (principal && ahora < principal.vence) return true;
+
+  for (const clave in membresias) {
+    const datos = membresias[clave];
+    if (!datos) continue;
+    if (ahora >= datos.vence) continue;
+
+    if (datos.idGrupo) {
+      if (
+        datos.idGrupo === n ||
+        n.startsWith(datos.idGrupo) ||
+        datos.idGrupo.startsWith(n)
+      ) return true;
+    }
+
+    if (datos.ids && Array.isArray(datos.ids)) {
+      for (const id of datos.ids) {
+        if (
+          id === n ||
+          n.startsWith(id) ||
+          id.startsWith(n)
+        ) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// 🕓 Devuelve tiempo restante de membresía
+function tiempoRestante(numero) {
+  const n = normalizarNumero(numero);
+  const membresias = cargarMembresias();
+  const ahora = Date.now();
+
+  let data = membresias[n];
+  if (data && ahora < data.vence) return calcularTiempo(data.vence - ahora);
+
+  for (const clave in membresias) {
+    const datos = membresias[clave];
+    if (!datos) continue;
+    if (ahora >= datos.vence) continue;
+
+    if (datos.idGrupo) {
+      if (
+        datos.idGrupo === n ||
+        n.startsWith(datos.idGrupo) ||
+        datos.idGrupo.startsWith(n)
+      ) return calcularTiempo(datos.vence - ahora);
+    }
+
+    if (datos.ids && Array.isArray(datos.ids)) {
+      for (const id of datos.ids) {
+        if (
+          id === n ||
+          n.startsWith(id) ||
+          id.startsWith(n)
+        ) return calcularTiempo(datos.vence - ahora);
+      }
+    }
+  }
+
+  return null;
+}
+
+function calcularTiempo(ms) {
+  if (ms <= 0) return null;
+  const dias = Math.floor(ms / (1000 * 60 * 60 * 24));
+  const horas = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  return { dias, horas };
+}
+
+// ✅ Control de búsqueda gratuita
+function cargarHistorial() {
+  if (!fs.existsSync(historialPath)) {
+    fs.writeFileSync(historialPath, '{}');
+    console.log('📂 Archivo historial_gratis.json creado.');
+    return {};
+  }
+  try {
+    return JSON.parse(fs.readFileSync(historialPath));
+  } catch (e) {
+    console.error('❌ [Error] No se pudo leer historial_gratis.json (archivo corrupto).');
+    return {};
+  }
+}
+
+function guardarHistorial(historial) {
+  try {
+    fs.writeFileSync(historialPath, JSON.stringify(historial, null, 2));
+    console.log('✅ Historial guardado correctamente.');
+  } catch (err) {
+    console.error('❌ [Error] No se pudo guardar historial:', err);
+  }
+}
+
+function yaUsoBusquedaGratis(numero) {
+  const n = normalizarNumero(numero);
+  const historial = cargarHistorial();
+  return historial[n] === true;
+}
+
+function registrarBusquedaGratis(numero) {
+  const n = normalizarNumero(numero);
+  const historial = cargarHistorial();
+  historial[n] = true;
+  guardarHistorial(historial);
+  console.log(`🆓 Uso gratuito registrado para ${n}.`);
+}
+
+// 📦 Exportamos todas las funciones
+module.exports = {
+  agregarMembresia,
+  actualizarIdGrupo,
+  verificarMembresia,
+  tiempoRestante,
+  yaUsoBusquedaGratis,
+  registrarBusquedaGratis,
+  normalizarNumero,
+  cargarMembresias
+};
 
 
 
