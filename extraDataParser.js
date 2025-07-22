@@ -103,9 +103,9 @@ function analizarTextoEstructurado(texto) {
     const cuitMatch = texto.match(/CU[IL]{2}:?\s*(\d{2,3}\d{8}\d{1})/i);
     if (cuitMatch) resultado.cuit = cuitMatch[1];
 
-    // ✅ Nueva expresión para detectar sexo incluso con viñeta "•"
-    const sexoMatch = texto.match(/(?:•\s*)?Sexo:\s*(F|M|Femenino|Masculino)/i);
-    if (sexoMatch) resultado.sexo = sexoMatch[1];
+    // ✅ Expresión robusta para detectar el sexo
+    const sexoMatch = texto.match(/(?:[^a-zA-Z0-9]|^)Sexo\s*[:\-]?\s*(F|M|Femenino|Masculino)/i);
+    if (sexoMatch) resultado.sexo = sexoMatch[1].charAt(0).toUpperCase();
 
     const nacimientoMatch = texto.match(/Nacimiento:\s*(\d{2}\/\d{2}\/\d{4})/i);
     if (nacimientoMatch) resultado.nacimiento = nacimientoMatch[1];
@@ -120,6 +120,7 @@ function analizarTextoEstructurado(texto) {
 }
 
 module.exports = esperarTextoExtraYAnalizar;
+
 
 
 
