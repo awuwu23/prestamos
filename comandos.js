@@ -30,6 +30,9 @@ const manejarConsultaLibre = require('./comandos/consultaLibre');
 // ✅ Cola centralizada
 const { agregarConsulta, obtenerEstado, procesarSiguiente } = require('./cola');
 
+// ✅ NUEVO: comando /membresias
+const { mostrarMembresiasActivas } = require('./membresiactiva');
+
 const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
 
@@ -153,6 +156,17 @@ async function manejarMensaje(sock, msg) {
             return await manejarCredito(sock, comando, respuestaDestino, fakeSenderJid, esGrupo);
         }
 
+        // ✅ NUEVO: comando /membresias (solo dueño)
+        if (comando === '/MEMBRESIAS') {
+            console.log('🚀 Ejecutando /membresias');
+            if (!esDueño) {
+                return await sock.sendMessage(respuestaDestino, {
+                    text: '⛔ *Solo el dueño puede usar este comando.*'
+                });
+            }
+            return await mostrarMembresiasActivas(sock, respuestaDestino);
+        }
+
         // === Consultas ===
         if (esConsulta) {
             if (!esAdmin && !esDueño && !tieneMembresia) {
@@ -221,6 +235,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
