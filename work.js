@@ -80,7 +80,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
                 ).join('\n') || '';
 
                 const detalleDominios = otros.map(dom => {
-                    const regex = new RegExp(`${dom}.*?(Marca:.*?\\n)?(Modelo:.*?\\n)?(Año:.*?\\n)?`, 'i');
+                    const regex = new RegExp(`${dom}.*?(Marca:.*?\n)?(Modelo:.*?\n)?(Año:.*?\n)?`, 'i');
                     const match = vehiculoTexto.match(regex);
 
                     const marca = (match?.[1] || '').replace(/Marca:\s*/i, '').trim() || 'Marca N/D';
@@ -158,6 +158,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
