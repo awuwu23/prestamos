@@ -25,10 +25,10 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         console.log('🤖 Bot obtenido:', bot?.username || '[Sin username]');
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
 
-        const inicioNosis = Date.now();
-        const comandoNosis = `/work ${dni}`;
-        console.log(`📤 Enviando comando: ${comandoNosis}`);
-        await client.sendMessage(bot, { message: comandoNosis });
+        const inicioWork = Date.now();
+        const comandoWork = `/work ${dni}`;
+        console.log(`📤 Enviando comando: ${comandoWork}`);
+        await client.sendMessage(bot, { message: comandoWork });
 
         const resultado = await esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
         console.log('📊 Resultado PDF analizado:', resultado);
@@ -43,7 +43,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             return;
         }
 
-        const tiempoTranscurrido = Date.now() - inicioNosis;
+        const tiempoTranscurrido = Date.now() - inicioWork;
         const minimoEspera = 30000;
         if (tiempoTranscurrido < minimoEspera) {
             const esperaRestante = minimoEspera - tiempoTranscurrido;
@@ -97,7 +97,6 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             }
         }
 
-        // ⬇️ NUEVO: Generar mensaje dividido
         const { mensajePrincipal, mensajeVacunas } = await generarMensajeResultado(dni, resultado, textoExtra, dominioResultado);
         console.log('📤 Enviando resultado al cliente por WhatsApp...');
         console.log('🧾 Destinatario:', destino);
@@ -138,6 +137,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
