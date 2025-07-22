@@ -1,6 +1,6 @@
 // comandos/validacionDni.js
 
-const validarIdentidad = require('../validar');
+const validarIdentidad = require('../work'); // ✅ Cambiado de '../validar' a '../work'
 
 async function manejarValidacionDni(sock, msg, comando, numero, senderJid, esGrupo, enProceso, respuestaDestino) {
     enProceso.add(numero);
@@ -26,4 +26,5 @@ async function manejarValidacionDni(sock, msg, comando, numero, senderJid, esGru
 }
 
 module.exports = manejarValidacionDni;
+
 
