@@ -85,14 +85,13 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     const yaTiene = verificarMembresia(numeroPrincipal);
     const idExtendido = posibleId.length > 11 ? posibleId : null;
 
+    const adminInfo = adminDetalle[adminNormalizado] || { nombre: 'Admin desconocido', id: '-' };
+
     if (!yaTiene) {
-        // Guardar membresía nueva con número + idExtendido
+        // Crear membresía nueva
         agregarMembresia(numeroPrincipal, idExtendido, nombre);
         const tiempo = tiempoRestante(numeroPrincipal);
 
-        const adminInfo = adminDetalle[adminNormalizado] || { nombre: 'Admin desconocido', id: '-' };
-
-        // Mensaje al cliente con confirmación
         await sock.sendMessage(`${numeroPrincipal}@s.whatsapp.net`, {
             text:
 `🎉 *¡Membresía activada exitosamente!*
@@ -103,7 +102,6 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
 ━━━━━━━━━━━━━━━━━━━━━━━`
         });
 
-        // Mensaje al admin con datos de cobro
         await sock.sendMessage(respuestaDestino, {
             text:
 `💳 *Datos para cobrar al cliente*
@@ -120,7 +118,6 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
 👑 *Vendedor:* ${adminInfo.nombre} (${adminNormalizado})`
         });
 
-        // Notificar a los dueños
         for (const dueño of dueños) {
             await sock.sendMessage(`${dueño}@s.whatsapp.net`, {
                 text:
@@ -134,28 +131,24 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
             });
         }
 
-        // Actualizar ventas
         const ventas = cargarVentas();
         ventas[adminNormalizado] = (ventas[adminNormalizado] || 0) + 1;
         guardarVentas(ventas);
+
     } else {
-        // Si ya tenía membresía, actualizar el idExtendido si corresponde
-        if (idExtendido) {
-            actualizarIdGrupo(numeroPrincipal, idExtendido);
-            await sock.sendMessage(respuestaDestino, {
-                text: `🔄 *El número ${numeroPrincipal} ya tenía membresía activa.*\n🆔 ID extendido *${idExtendido}* vinculado correctamente.`
-            });
-        } else {
-            await sock.sendMessage(respuestaDestino, {
-                text: `ℹ️ *El número ${numeroPrincipal} ya posee una membresía activa.*`
-            });
-        }
+        // Renovar membresía y actualizar id extendido si es necesario
+        agregarMembresia(numeroPrincipal, idExtendido, nombre);
+        const tiempo = tiempoRestante(numeroPrincipal);
+
+        await sock.sendMessage(respuestaDestino, {
+            text: `🔄 *Membresía de ${numeroPrincipal} renovada y actualizada.*\n🕒 *Válida por:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).`
+        });
     }
 
     return true;
 }
 
-// Manejar comando /id para mostrar ID normalizado
+// Manejar comando /id
 async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
     const id = normalizarNumero(numero);
     await sock.sendMessage(respuestaDestino, {
@@ -165,7 +158,7 @@ async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
     return true;
 }
 
-// Manejar comando /adm para agregar administradores (solo dueño)
+// Manejar comando /adm
 async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     const adminNormalizado = normalizarNumero(numeroAdmin);
     if (!dueños.includes(adminNormalizado)) {
@@ -184,7 +177,6 @@ async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     }
 
     const nuevoAdmin = normalizarNumero(partes[1]);
-
     let idExtendido = null;
     let nombre = 'Admin sin nombre';
 
@@ -234,7 +226,7 @@ async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     return true;
 }
 
-// Manejar comando /me para mostrar estado del usuario
+// Manejar comando /me
 async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     const id = normalizarNumero(numero);
     const esAdmin = adminList.includes(id);
@@ -280,7 +272,7 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     return true;
 }
 
-// Manejar comando /admins para mostrar ranking de admins
+// Manejar comando /admins
 async function manejarAdmins(sock, respuestaDestino) {
     const ventas = cargarVentas();
 
@@ -320,6 +312,7 @@ module.exports = {
     manejarAdmins,
     adminList
 };
+
 
 
 
