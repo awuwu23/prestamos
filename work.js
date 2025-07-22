@@ -60,7 +60,8 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         console.log(`📤 Enviando comando: ${comandoDni}`);
         await client.sendMessage(bot, { message: comandoDni });
 
-        await delay(15000);
+        // ✅ Reenviar todos los mensajes de /dni
+        await reenviarMensajesDelBot(client, bot, sock, destino, 20000);
 
         let dominioResultado = null;
         if (textoExtra?.dominio) {
@@ -113,7 +114,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
     }
 }
 
-// 🔽 Funciones internas (antes estaban en extraDataParser.js)
+// 🔽 Espera mensajes y analiza texto estructurado (para /federador)
 async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroCliente = null, destino = null) {
     return new Promise((resolve) => {
         let resolved = false;
@@ -150,6 +151,47 @@ async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroClient
 
             resolve(analizarTextoEstructurado(texto));
         }, 25000);
+    });
+}
+
+// 🔽 Reenvía TODOS los mensajes del bot durante cierto tiempo
+async function reenviarMensajesDelBot(client, bot, sock, destino, delayMs = 20000) {
+    return new Promise((resolve) => {
+        let resolved = false;
+        const mensajes = [];
+
+        const handler = async (event) => {
+            if (resolved) return;
+
+            const msg = event.message;
+            const fromBot = msg.senderId && msg.senderId.equals(bot.id);
+            if (!fromBot) return;
+
+            const texto = msg.message?.trim();
+            if (texto) {
+                console.log('📥 [Reenvío Bot] Capturado:', texto);
+                mensajes.push(texto);
+            }
+        };
+
+        client.addEventHandler(handler, new NewMessage({}));
+
+        setTimeout(async () => {
+            resolved = true;
+            client.removeEventHandler(handler);
+
+            if (sock && destino && mensajes.length > 0) {
+                for (const m of mensajes) {
+                    try {
+                        await sock.sendMessage(destino, { text: m });
+                    } catch (err) {
+                        console.error('❌ Error reenviando mensaje:', err);
+                    }
+                }
+            }
+
+            resolve();
+        }, delayMs);
     });
 }
 
@@ -237,6 +279,7 @@ function analizarTextoEstructurado(texto) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
