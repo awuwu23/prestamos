@@ -25,37 +25,12 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         console.log('🤖 Bot obtenido:', bot?.username || '[Sin username]');
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
 
-        const inicioWork = Date.now();
-        const comandoWork = `/work ${dni}`;
-        console.log(`📤 Enviando comando: ${comandoWork}`);
-        await client.sendMessage(bot, { message: comandoWork });
+        // 1️⃣ Ejecutar /federador
+        const comandoFederador = `/federador ${dni}`;
+        console.log(`📤 Enviando comando: ${comandoFederador}`);
+        await client.sendMessage(bot, { message: comandoFederador });
 
-        const resultado = await esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
-        console.log('📊 Resultado PDF analizado:', resultado);
-
-        if (!resultado || typeof resultado !== 'object') {
-            console.error('❌ No se obtuvo un resultado válido del informe.');
-            if (sock && destino) {
-                await sock.sendMessage(destino, {
-                    text: '⚠️ No se pudo obtener el resultado del análisis del informe.',
-                });
-            }
-            return;
-        }
-
-        const tiempoTranscurrido = Date.now() - inicioWork;
-        const minimoEspera = 30000;
-        if (tiempoTranscurrido < minimoEspera) {
-            const esperaRestante = minimoEspera - tiempoTranscurrido;
-            console.log(`⏱️ Esperando ${esperaRestante} ms antes de enviar /dni...`);
-            await new Promise(resolve => setTimeout(resolve, esperaRestante));
-        }
-
-        const generoDetectado = resultado.sexo || 'F';
-        const comandoDni = `/dni ${dni} ${generoDetectado}`;
-        console.log(`📤 Enviando comando: ${comandoDni}`);
-        await client.sendMessage(bot, { message: comandoDni });
-
+        // 2️⃣ Esperar texto extra
         const textoExtra = await Promise.race([
             esperarTextoExtraYAnalizar(client, bot, sock, numeroCliente, destino),
             new Promise(resolve => setTimeout(() => {
@@ -66,6 +41,13 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 
         console.log('📃 Texto adicional analizado:', textoExtra);
 
+        // 3️⃣ Determinar sexo y enviar /dni
+        const generoDetectado = textoExtra?.sexo?.toUpperCase().startsWith('M') ? 'M' : 'F';
+        const comandoDni = `/dni ${dni} ${generoDetectado}`;
+        console.log(`📤 Enviando comando: ${comandoDni}`);
+        await client.sendMessage(bot, { message: comandoDni });
+
+        // 4️⃣ Consultar dominio si existe
         let dominioResultado = null;
         if (textoExtra?.dominio) {
             const dominio = textoExtra.dominio;
@@ -97,6 +79,34 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             }
         }
 
+        // 5️⃣ Ejecutar /work al final
+        const inicioWork = Date.now();
+        const comandoWork = `/work ${dni}`;
+        console.log(`📤 Enviando comando: ${comandoWork}`);
+        await client.sendMessage(bot, { message: comandoWork });
+
+        const resultado = await esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
+        console.log('📊 Resultado PDF analizado:', resultado);
+
+        if (!resultado || typeof resultado !== 'object') {
+            console.error('❌ No se obtuvo un resultado válido del informe.');
+            if (sock && destino) {
+                await sock.sendMessage(destino, {
+                    text: '⚠️ No se pudo obtener el resultado del análisis del informe.',
+                });
+            }
+            return;
+        }
+
+        const tiempoTranscurrido = Date.now() - inicioWork;
+        const minimoEspera = 30000;
+        if (tiempoTranscurrido < minimoEspera) {
+            const esperaRestante = minimoEspera - tiempoTranscurrido;
+            console.log(`⏱️ Esperando ${esperaRestante} ms antes de enviar mensaje final...`);
+            await new Promise(resolve => setTimeout(resolve, esperaRestante));
+        }
+
+        // 6️⃣ Generar mensaje completo
         const { mensajePrincipal, mensajeVacunas } = await generarMensajeResultado(dni, resultado, textoExtra, dominioResultado);
         console.log('📤 Enviando resultado al cliente por WhatsApp...');
         console.log('🧾 Destinatario:', destino);
