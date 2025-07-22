@@ -26,3 +26,4 @@ async function manejarValidacionDni(sock, msg, comando, numero, senderJid, esGru
 }
 
 module.exports = manejarValidacionDni;
+
