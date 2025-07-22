@@ -4,7 +4,6 @@ const path = require('path');
 const membresiasPath = path.join(__dirname, 'membresias.json');
 const historialPath = path.join(__dirname, 'historial_gratis.json');
 
-// 🔄 Normaliza número al formato 549XXXXXXXXXX
 function normalizarNumero(numero) {
   let n = numero.toString().replace(/\D/g, '');
   if (n.startsWith('549')) return n;
@@ -218,7 +217,34 @@ function registrarBusquedaGratis(numero) {
   console.log(`🆓 Uso gratuito registrado para ${n}.`);
 }
 
-// 📦 Exportamos todas las funciones
+// ✅ LIMPIEZA AUTOMÁTICA de membresías vencidas + notificación
+async function limpiarMembresiasVencidas(sock = null) {
+  const membresias = cargarMembresias();
+  const ahora = Date.now();
+  let cambios = false;
+
+  for (const numero in membresias) {
+    const datos = membresias[numero];
+    if (!datos || datos.vence <= ahora) {
+      if (sock) {
+        try {
+          await sock.sendMessage(`${numero}@s.whatsapp.net`, {
+            text: `🔒 *Tu membresía ha expirado.*\n\nSi querés seguir usando el sistema, contactá con un administrador para renovarla.`
+          });
+        } catch (e) {
+          console.warn(`⚠️ No se pudo notificar a ${numero}:`, e.message);
+        }
+      }
+
+      delete membresias[numero];
+      cambios = true;
+      console.log(`🧹 Eliminada membresía vencida de ${numero}`);
+    }
+  }
+
+  if (cambios) guardarMembresias(membresias);
+}
+
 module.exports = {
   agregarMembresia,
   actualizarIdGrupo,
@@ -227,8 +253,10 @@ module.exports = {
   yaUsoBusquedaGratis,
   registrarBusquedaGratis,
   normalizarNumero,
-  cargarMembresias
+  cargarMembresias,
+  limpiarMembresiasVencidas
 };
+
 
 
 

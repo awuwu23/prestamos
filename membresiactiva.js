@@ -13,19 +13,21 @@ async function mostrarMembresiasActivas(sock, respuestaDestino) {
         const membresias = cargarMembresias();
         const ahora = Date.now();
 
-        // Creamos lista ordenada de miembros
+        // Crear lista de membresías activas
         const lista = Object.entries(membresias)
             .map(([numero, datos]) => {
                 const inicio = new Date(datos.inicio);
-                const vencimiento = new Date(datos.vencimiento);
-                const diasRestantes = Math.ceil((vencimiento - ahora) / (1000 * 60 * 60 * 24));
-                const diasActiva = Math.ceil((ahora - inicio) / (1000 * 60 * 60 * 24));
+                const vence = new Date(datos.vence); // ✅ CAMPO CORRECTO
+                const diasRestantes = Math.floor((vence - ahora) / (1000 * 60 * 60 * 24));
+                const diasActiva = Math.floor((ahora - inicio) / (1000 * 60 * 60 * 24));
                 return {
                     numero,
+                    nombre: datos.nombre || 'Sin nombre',
                     diasRestantes,
                     diasActiva
                 };
             })
+            .filter(item => item.diasRestantes > 0)
             .sort((a, b) => a.diasRestantes - b.diasRestantes);
 
         if (lista.length === 0) {
@@ -35,11 +37,11 @@ async function mostrarMembresiasActivas(sock, respuestaDestino) {
             return;
         }
 
-        let texto = '📋 *Membresías activas:*\n\n';
+        let texto = '📋 *Membresías activas:*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
         lista.forEach((item, index) => {
-            texto += `*${index + 1}.* 📱 ${item.numero}\n`;
-            texto += `   🕑 Activa hace: ${item.diasActiva} días\n`;
-            texto += `   ⏳ Vence en: ${item.diasRestantes} días\n\n`;
+            texto += `*${index + 1}.* 📱 ${item.numero} - ${item.nombre}\n`;
+            texto += `   🕑 Activa hace: ${item.diasActiva} día(s)\n`;
+            texto += `   ⏳ Vence en: ${item.diasRestantes} día(s)\n\n`;
         });
 
         await sock.sendMessage(normalizarDestino(respuestaDestino), {
@@ -54,17 +56,16 @@ async function mostrarMembresiasActivas(sock, respuestaDestino) {
 }
 
 function normalizarDestino(jid) {
-    // Si ya es JID válido, devolverlo tal cual
     if (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@g.us')) {
         return jid;
     }
-    // Si es número, agregar sufijo
     if (/^\d+$/.test(jid)) {
         return `${jid}@s.whatsapp.net`;
     }
-    return jid; // fallback
+    return jid;
 }
 
 module.exports = { mostrarMembresiasActivas };
+
 
 

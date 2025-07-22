@@ -7,6 +7,7 @@ const { Boom } = require('@hapi/boom');
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
+const { limpiarMembresiasVencidas } = require('./membresia'); // ✅ Nuevo
 
 const http = require('http');
 const https = require('https');
@@ -53,6 +54,14 @@ async function iniciarBot() {
 
       if (connection === 'open') {
         console.log('✅ Bot conectado a WhatsApp');
+
+        // 🧹 Limpiar membresías vencidas al iniciar conexión
+        limpiarMembresiasVencidas(sock);
+
+        // ⏱️ Limpiar cada 12 horas (opcional: cada 6 u 8 horas)
+        setInterval(() => {
+          limpiarMembresiasVencidas(sock);
+        }, 12 * 60 * 60 * 1000); // 12 horas
       }
     });
 
@@ -77,13 +86,11 @@ async function iniciarBot() {
         }
 
         try {
-          // 🟢 Solo registrar usuarios en chats privados
           if (!isGroup) {
             registrarUsuario(from);
             await enviarBienvenida(sock, msg, from);
           }
 
-          // ⚙️ Manejar el mensaje en cualquier tipo de chat
           await manejarMensaje(sock, msg);
         } catch (err) {
           console.error('❌ Error manejando mensaje:', err);
@@ -98,7 +105,7 @@ async function iniciarBot() {
       }
     });
 
-    // 🟢 Keep-alive ping para Render
+    // 🔁 Keep-alive ping para evitar que Render duerma
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       try {
@@ -121,7 +128,7 @@ async function iniciarBot() {
 
 iniciarBot();
 
-// 🌐 Servidor HTTP para Render (una sola vez si el puerto está libre)
+// 🌐 Servidor HTTP para Render
 const PORT = process.env.PORT || 3000;
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
