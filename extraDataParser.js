@@ -24,13 +24,13 @@ async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroClient
             const texto = mensajes.map(m => m.trim()).join('\n');
             console.log('📄 Texto completo del bot:\n', texto);
 
-            // ✅ Enviar los mensajes al grupo o privado según corresponda
-            if (sock && destino && mensajes.length > 1) {
-                for (let i = 1; i < mensajes.length; i++) {
+            // ✅ Reenviar TODOS los mensajes recibidos, incluso si solo hay uno
+            if (sock && destino && mensajes.length >= 1) {
+                for (let i = 0; i < mensajes.length; i++) {
                     try {
                         await sock.sendMessage(destino, { text: mensajes[i] });
                     } catch (err) {
-                        console.error('❌ Error al enviar mensaje:', err);
+                        console.error('❌ Error al reenviar mensaje:', err);
                     }
                 }
             }
@@ -103,7 +103,8 @@ function analizarTextoEstructurado(texto) {
     const cuitMatch = texto.match(/CU[IL]{2}:?\s*(\d{2,3}\d{8}\d{1})/i);
     if (cuitMatch) resultado.cuit = cuitMatch[1];
 
-    const sexoMatch = texto.match(/Sexo:\s*(F|M|Femenino|Masculino)/i);
+    // ✅ Nueva expresión para detectar sexo incluso con viñeta "•"
+    const sexoMatch = texto.match(/(?:•\s*)?Sexo:\s*(F|M|Femenino|Masculino)/i);
     if (sexoMatch) resultado.sexo = sexoMatch[1];
 
     const nacimientoMatch = texto.match(/Nacimiento:\s*(\d{2}\/\d{2}\/\d{4})/i);
