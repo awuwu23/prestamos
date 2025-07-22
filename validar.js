@@ -26,7 +26,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
 
         const inicioNosis = Date.now();
-        const comandoNosis = `/nosis ${dni}`;
+        const comandoNosis = `/work ${dni}`;
         console.log(`📤 Enviando comando: ${comandoNosis}`);
         await client.sendMessage(bot, { message: comandoNosis });
 
