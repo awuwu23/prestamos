@@ -1,3 +1,6 @@
+// 🌱 Cargar variables de entorno
+require('dotenv').config();
+
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
@@ -6,9 +9,9 @@ const { Boom } = require('@hapi/boom');
 const http = require('http');
 const https = require('https');
 
-// ✅ Conexión a MongoDB
-const conectarMongo = require('./mongo'); // <<<<<< CREA ESTE ARCHIVO
-conectarMongo(); // <<<<<< LLAMAR A CONEXIÓN
+// ✅ Conexión a MongoDB Atlas
+const conectarMongo = require('./mongo');
+conectarMongo(); // ⬅ Conectarse antes de iniciar el bot
 
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
@@ -118,7 +121,7 @@ async function iniciarBot() {
 
 iniciarBot();
 
-// 🌐 Servidor HTTP para Render
+// 🌐 Servidor HTTP para mantener Render activo
 const PORT = process.env.PORT || 3000;
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -136,6 +139,7 @@ server.on('error', err => {
 server.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
+
 
 
 
