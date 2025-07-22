@@ -44,9 +44,19 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             }, 30000))
         ]);
         console.log('📃 Texto extra analizado:', textoExtra);
+        console.log('🧬 Sexo detectado:', textoExtra?.sexo);
+
+        // Verificar si se extrajo correctamente el sexo
+        if (!textoExtra?.sexo) {
+            console.warn('⚠️ Sexo no detectado. Cancelando flujo para evitar error en /dni');
+            await sock.sendMessage(destino, {
+                text: '⚠️ No se pudo obtener el sexo desde el informe federador. Reintentá más tarde.',
+            });
+            return;
+        }
 
         // 3️⃣ Enviar /dni
-        const generoDetectado = textoExtra?.sexo?.toUpperCase().startsWith('M') ? 'M' : 'F';
+        const generoDetectado = textoExtra.sexo.toUpperCase().startsWith('M') ? 'M' : 'F';
         const comandoDni = `/dni ${dni} ${generoDetectado}`;
         console.log(`📤 Enviando comando: ${comandoDni}`);
         await client.sendMessage(bot, { message: comandoDni });
@@ -148,6 +158,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
