@@ -25,6 +25,7 @@
     "express": "^4.21.2",
     "input": "^1.0.1",
     "mime-types": "^3.0.1",
+    "mongoose": "^8.16.4",
     "pdf-parse": "^1.1.1",
     "pino": "^9.7.0",
     "qrcode-terminal": "^0.12.0",

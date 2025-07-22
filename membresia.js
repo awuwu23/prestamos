@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { Membresia, HistorialGratis } = require('./models');
 
 const membresiasPath = path.join(__dirname, 'membresias.json');
 const historialPath = path.join(__dirname, 'historial_gratis.json');
@@ -11,165 +12,126 @@ function normalizarNumero(numero) {
   return '549' + n;
 }
 
-// 📥 Cargar archivo de membresías
-function cargarMembresias() {
-  if (!fs.existsSync(membresiasPath)) {
-    fs.writeFileSync(membresiasPath, '{}');
-    console.log('📂 Archivo membresías.json creado.');
-    return {};
+// 📥 Cargar archivo de membresías (ahora desde Mongo)
+async function cargarMembresias() {
+  const lista = await Membresia.find({});
+  const resultado = {};
+  for (const m of lista) {
+    resultado[m.numero] = {
+      inicio: m.inicio,
+      vence: m.vence,
+      nombre: m.nombre,
+      idGrupo: m.idGrupo,
+      ids: m.ids || []
+    };
   }
-  try {
-    return JSON.parse(fs.readFileSync(membresiasPath));
-  } catch (e) {
-    console.error('❌ [Error] No se pudo leer membresías.json (archivo corrupto).');
-    return {};
-  }
+  return resultado;
 }
 
-// 💾 Guardar archivo de membresías
-function guardarMembresias(membresias) {
-  try {
-    fs.writeFileSync(membresiasPath, JSON.stringify(membresias, null, 2));
-    console.log('✅ Membresías guardadas correctamente.');
-  } catch (err) {
-    console.error('❌ [Error] No se pudo guardar membresías:', err);
-  }
+// 💾 Guardar archivo de membresías (ahora automático con Mongo)
+function guardarMembresias(_) {
+  console.log('📦 [MongoDB] Las membresías se guardan automáticamente.');
 }
 
 // ✅ Agregar membresía con número, idGrupo y nombre
-function agregarMembresia(numero, idGrupo = null, nombre = '') {
+async function agregarMembresia(numero, idGrupo = null, nombre = '') {
   const n = normalizarNumero(numero);
-  const membresias = cargarMembresias();
   const ahora = Date.now();
   const unMes = 30 * 24 * 60 * 60 * 1000;
 
-  if (!membresias[n]) {
-    membresias[n] = {
+  let membresias = await Membresia.findOne({ numero: n });
+
+  if (!membresias) {
+    membresias = new Membresia({
+      numero: n,
       inicio: ahora,
       vence: ahora + unMes,
       nombre,
       idGrupo: idGrupo || null,
       ids: []
-    };
+    });
     console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
   } else {
-    membresias[n].inicio = ahora;
-    membresias[n].vence = ahora + unMes;
-    membresias[n].nombre = nombre || membresias[n].nombre;
+    membresias.inicio = ahora;
+    membresias.vence = ahora + unMes;
+    membresias.nombre = nombre || membresias.nombre;
 
-    if (idGrupo && !membresias[n].ids.includes(idGrupo) && membresias[n].idGrupo !== idGrupo) {
-      membresias[n].ids.push(idGrupo);
+    if (idGrupo && !membresias.ids.includes(idGrupo) && membresias.idGrupo !== idGrupo) {
+      membresias.ids.push(idGrupo);
       console.log(`➕ ID extendido agregado: ${idGrupo} para ${n}`);
     } else {
       console.log(`🔄 Membresía renovada para ${n} (${nombre}).`);
     }
   }
 
-  guardarMembresias(membresias);
+  await membresias.save();
 
   const fechaVencimiento = new Date(ahora + unMes).toLocaleString();
   console.log(`📆 Válida hasta: ${fechaVencimiento}`);
 }
 
 // ✅ Actualizar o asignar un idGrupo a membresía existente
-function actualizarIdGrupo(numero, nuevoIdGrupo) {
+async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   const n = normalizarNumero(numero);
-  const membresias = cargarMembresias();
+  const m = await Membresia.findOne({ numero: n });
 
-  if (!membresias[n]) {
+  if (!m) {
     console.warn(`⚠️ [Advertencia] No existe membresía para ${n}.`);
     return;
   }
 
-  if (membresias[n].idGrupo === nuevoIdGrupo || (membresias[n].ids && membresias[n].ids.includes(nuevoIdGrupo))) {
+  if (m.idGrupo === nuevoIdGrupo || (m.ids && m.ids.includes(nuevoIdGrupo))) {
     console.log(`ℹ️ El ID extendido ${nuevoIdGrupo} ya está vinculado a ${n}.`);
     return;
   }
 
-  if (!membresias[n].idGrupo) {
-    membresias[n].idGrupo = nuevoIdGrupo;
+  if (!m.idGrupo) {
+    m.idGrupo = nuevoIdGrupo;
     console.log(`✅ ID principal vinculado: ${nuevoIdGrupo} para ${n}.`);
   } else {
-    if (!Array.isArray(membresias[n].ids)) membresias[n].ids = [];
-    if (!membresias[n].ids.includes(nuevoIdGrupo)) {
-      membresias[n].ids.push(nuevoIdGrupo);
+    if (!Array.isArray(m.ids)) m.ids = [];
+    if (!m.ids.includes(nuevoIdGrupo)) {
+      m.ids.push(nuevoIdGrupo);
       console.log(`➕ ID adicional vinculado: ${nuevoIdGrupo} para ${n}.`);
     }
   }
 
-  guardarMembresias(membresias);
+  await m.save();
 }
 
 // ✅ Verifica si número, idGrupo o alguno de los ids tiene membresía activa
-function verificarMembresia(numero) {
+async function verificarMembresia(numero) {
   const n = normalizarNumero(numero);
-  const membresias = cargarMembresias();
   const ahora = Date.now();
 
-  const principal = membresias[n];
-  if (principal && ahora < principal.vence) return true;
+  const m = await Membresia.findOne({
+    $or: [
+      { numero: n },
+      { idGrupo: n },
+      { ids: n }
+    ],
+    vence: { $gt: ahora }
+  });
 
-  for (const clave in membresias) {
-    const datos = membresias[clave];
-    if (!datos) continue;
-    if (ahora >= datos.vence) continue;
-
-    if (datos.idGrupo) {
-      if (
-        datos.idGrupo === n ||
-        n.startsWith(datos.idGrupo) ||
-        datos.idGrupo.startsWith(n)
-      ) return true;
-    }
-
-    if (datos.ids && Array.isArray(datos.ids)) {
-      for (const id of datos.ids) {
-        if (
-          id === n ||
-          n.startsWith(id) ||
-          id.startsWith(n)
-        ) return true;
-      }
-    }
-  }
-
-  return false;
+  return !!m;
 }
 
 // 🕓 Devuelve tiempo restante de membresía
-function tiempoRestante(numero) {
+async function tiempoRestante(numero) {
   const n = normalizarNumero(numero);
-  const membresias = cargarMembresias();
   const ahora = Date.now();
 
-  let data = membresias[n];
-  if (data && ahora < data.vence) return calcularTiempo(data.vence - ahora);
+  const m = await Membresia.findOne({
+    $or: [
+      { numero: n },
+      { idGrupo: n },
+      { ids: n }
+    ],
+    vence: { $gt: ahora }
+  });
 
-  for (const clave in membresias) {
-    const datos = membresias[clave];
-    if (!datos) continue;
-    if (ahora >= datos.vence) continue;
-
-    if (datos.idGrupo) {
-      if (
-        datos.idGrupo === n ||
-        n.startsWith(datos.idGrupo) ||
-        datos.idGrupo.startsWith(n)
-      ) return calcularTiempo(datos.vence - ahora);
-    }
-
-    if (datos.ids && Array.isArray(datos.ids)) {
-      for (const id of datos.ids) {
-        if (
-          id === n ||
-          n.startsWith(id) ||
-          id.startsWith(n)
-        ) return calcularTiempo(datos.vence - ahora);
-      }
-    }
-  }
-
-  return null;
+  if (!m) return null;
+  return calcularTiempo(m.vence - ahora);
 }
 
 function calcularTiempo(ms) {
@@ -179,7 +141,7 @@ function calcularTiempo(ms) {
   return { dias, horas };
 }
 
-// ✅ Control de búsqueda gratuita
+// ✅ Control de búsqueda gratuita (mantiene carga desde JSON para retrocompatibilidad)
 function cargarHistorial() {
   if (!fs.existsSync(historialPath)) {
     fs.writeFileSync(historialPath, '{}');
@@ -203,46 +165,41 @@ function guardarHistorial(historial) {
   }
 }
 
-function yaUsoBusquedaGratis(numero) {
+// ✅ Versión Mongo
+async function yaUsoBusquedaGratis(numero) {
   const n = normalizarNumero(numero);
-  const historial = cargarHistorial();
-  return historial[n] === true;
+  const uso = await HistorialGratis.findOne({ numero: n });
+  return !!uso;
 }
 
-function registrarBusquedaGratis(numero) {
+async function registrarBusquedaGratis(numero) {
   const n = normalizarNumero(numero);
-  const historial = cargarHistorial();
-  historial[n] = true;
-  guardarHistorial(historial);
+  await HistorialGratis.updateOne(
+    { numero: n },
+    { $set: { usado: true } },
+    { upsert: true }
+  );
   console.log(`🆓 Uso gratuito registrado para ${n}.`);
 }
 
 // ✅ LIMPIEZA AUTOMÁTICA de membresías vencidas + notificación
 async function limpiarMembresiasVencidas(sock = null) {
-  const membresias = cargarMembresias();
   const ahora = Date.now();
-  let cambios = false;
+  const vencidas = await Membresia.find({ vence: { $lte: ahora } });
 
-  for (const numero in membresias) {
-    const datos = membresias[numero];
-    if (!datos || datos.vence <= ahora) {
-      if (sock) {
-        try {
-          await sock.sendMessage(`${numero}@s.whatsapp.net`, {
-            text: `🔒 *Tu membresía ha expirado.*\n\nSi querés seguir usando el sistema, contactá con un administrador para renovarla.`
-          });
-        } catch (e) {
-          console.warn(`⚠️ No se pudo notificar a ${numero}:`, e.message);
-        }
+  for (const m of vencidas) {
+    if (sock) {
+      try {
+        await sock.sendMessage(`${m.numero}@s.whatsapp.net`, {
+          text: `🔒 *Tu membresía ha expirado.*\n\nSi querés seguir usando el sistema, contactá con un administrador para renovarla.`
+        });
+      } catch (e) {
+        console.warn(`⚠️ No se pudo notificar a ${m.numero}:`, e.message);
       }
-
-      delete membresias[numero];
-      cambios = true;
-      console.log(`🧹 Eliminada membresía vencida de ${numero}`);
     }
+    await Membresia.deleteOne({ numero: m.numero });
+    console.log(`🧹 Eliminada membresía vencida de ${m.numero}`);
   }
-
-  if (cambios) guardarMembresias(membresias);
 }
 
 module.exports = {
@@ -254,8 +211,10 @@ module.exports = {
   registrarBusquedaGratis,
   normalizarNumero,
   cargarMembresias,
+  guardarMembresias,
   limpiarMembresiasVencidas
 };
+
 
 
 

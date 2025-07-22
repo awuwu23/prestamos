@@ -3,14 +3,17 @@ const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/bai
 const qrcode = require('qrcode-terminal');
 const P = require('pino');
 const { Boom } = require('@hapi/boom');
+const http = require('http');
+const https = require('https');
+
+// ✅ Conexión a MongoDB
+const conectarMongo = require('./mongo'); // <<<<<< CREA ESTE ARCHIVO
+conectarMongo(); // <<<<<< LLAMAR A CONEXIÓN
 
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
-const { limpiarMembresiasVencidas } = require('./membresia'); // ✅ Nuevo
-
-const http = require('http');
-const https = require('https');
+const { limpiarMembresiasVencidas } = require('./membresia');
 
 let socketGlobal = null;
 
@@ -44,10 +47,10 @@ async function iniciarBot() {
         console.log(`❌ Conexión cerrada. Código: ${code}`);
 
         if (code === DisconnectReason.loggedOut || code === 440) {
-          console.log('🔒 Sesión cerrada o desconectada (código 440). Eliminá la carpeta "session" y escaneá el QR nuevamente.');
+          console.log('🔒 Sesión cerrada o desconectada. Eliminá "session" y escaneá nuevamente.');
           process.exit(0);
         } else {
-          console.log('🔁 Intentando reconectar en 3 segundos...');
+          console.log('🔁 Reintentando conexión en 3s...');
           setTimeout(iniciarBot, 3000);
         }
       }
@@ -55,13 +58,11 @@ async function iniciarBot() {
       if (connection === 'open') {
         console.log('✅ Bot conectado a WhatsApp');
 
-        // 🧹 Limpiar membresías vencidas al iniciar conexión
+        // 🧹 Limpiar membresías vencidas al conectar
         limpiarMembresiasVencidas(sock);
 
-        // ⏱️ Limpiar cada 12 horas (opcional: cada 6 u 8 horas)
-        setInterval(() => {
-          limpiarMembresiasVencidas(sock);
-        }, 12 * 60 * 60 * 1000); // 12 horas
+        // ⏱️ Y cada 12 horas
+        setInterval(() => limpiarMembresiasVencidas(sock), 12 * 60 * 60 * 1000);
       }
     });
 
@@ -76,14 +77,10 @@ async function iniciarBot() {
         const isGroup = from.endsWith('@g.us');
         const sender = isGroup ? msg.key.participant : msg.key.remoteJid;
 
-        console.log('🔍 Mensaje recibido desde:', from);
-        console.log('👥 Es grupo:', isGroup);
+        console.log('🔍 Mensaje desde:', from);
         console.log('👤 Remitente:', sender);
 
-        if (!sender) {
-          console.warn('⚠️ No se pudo determinar el remitente del mensaje.');
-          continue;
-        }
+        if (!sender) continue;
 
         try {
           if (!isGroup) {
@@ -93,10 +90,10 @@ async function iniciarBot() {
 
           await manejarMensaje(sock, msg);
         } catch (err) {
-          console.error('❌ Error manejando mensaje:', err);
+          console.error('❌ Error procesando mensaje:', err);
           try {
             await sock.sendMessage(from, {
-              text: '⚠️ Ocurrió un error al procesar el mensaje.',
+              text: '⚠️ Error procesando tu mensaje. Intentá nuevamente.',
             });
           } catch (e) {
             console.error('❌ No se pudo enviar mensaje de error:', e);
@@ -108,16 +105,9 @@ async function iniciarBot() {
     // 🔁 Keep-alive ping para evitar que Render duerma
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
-      try {
-        const client = keepAliveUrl.startsWith('https') ? https : http;
-        client.get(keepAliveUrl, res => {
-          res.on('data', () => {});
-        }).on('error', err => {
-          console.error('❌ Error en keepAlive ping:', err.message);
-        });
-      } catch (err) {
-        console.error('❌ Excepción en keepAlive:', err.message);
-      }
+      const client = keepAliveUrl.startsWith('https') ? https : http;
+      client.get(keepAliveUrl, res => res.on('data', () => {}))
+        .on('error', err => console.error('❌ Error en keepAlive:', err.message));
     }, 25 * 1000);
 
   } catch (error) {
@@ -137,7 +127,7 @@ const server = http.createServer((req, res) => {
 
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {
-    console.warn(`⚠️ Puerto ${PORT} ya está en uso. Probablemente ya esté corriendo el servidor.`);
+    console.warn(`⚠️ Puerto ${PORT} ya está en uso.`);
   } else {
     console.error('❌ Error al iniciar servidor HTTP:', err);
   }
@@ -146,6 +136,7 @@ server.on('error', err => {
 server.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
+
 
 
 
