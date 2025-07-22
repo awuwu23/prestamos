@@ -27,15 +27,12 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
         console.log('🤖 Bot obtenido:', bot.username || '[Sin username]');
 
-        // 1️⃣ Enviar /federador
         const comandoFederador = `/federador ${dni}`;
         console.log(`📤 Enviando comando: ${comandoFederador}`);
         await client.sendMessage(bot, { message: comandoFederador });
 
-        // Esperar 15s
         await delay(15000);
 
-        // 2️⃣ Analizar respuesta (inline)
         const textoExtra = await Promise.race([
             esperarTextoExtraYAnalizar(client, bot, sock, numeroCliente, destino),
             new Promise(resolve => setTimeout(() => {
@@ -61,11 +58,12 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 
         await delay(15000);
 
+        let dominioResultado = null;
         if (textoExtra?.dominio) {
             const dominio = textoExtra.dominio;
             console.log(`⏳ Esperando 15s para consultar /dnrpa ${dominio}`);
             await delay(15000);
-            const dominioResultado = await consultarDominio(dominio, client, bot);
+            dominioResultado = await consultarDominio(dominio, client, bot);
             console.log('✅ Resultado de /dnrpa:', dominioResultado);
         }
 
@@ -86,7 +84,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             return;
         }
 
-        const { mensajePrincipal, mensajeVacunas } = await generarMensajeResultado(dni, resultado, textoExtra, null);
+        const { mensajePrincipal, mensajeVacunas } = await generarMensajeResultado(dni, resultado, textoExtra, dominioResultado);
         console.log('📤 Enviando resultado al cliente por WhatsApp...');
         await sock.sendMessage(destino, { text: mensajePrincipal });
         if (mensajeVacunas) {
@@ -111,7 +109,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
     }
 }
 
-// 🔽 Funciones movidas desde extraDataParser.js
+// 🔽 Funciones internas (antes estaban en extraDataParser.js)
 async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroCliente = null, destino = null) {
     return new Promise((resolve) => {
         let resolved = false;
@@ -214,7 +212,8 @@ function analizarTextoEstructurado(texto) {
     const cuitMatch = texto.match(/CU[IL]{2}:?\s*(\d{2,3}\d{8}\d{1})/i);
     if (cuitMatch) resultado.cuit = cuitMatch[1];
 
-    const sexoMatch = texto.match(/(?:[^a-zA-Z0-9]|^)Sexo\s*[:\-]?\s*(F|M|Femenino|Masculino)/i);
+    // ✅ EXPRESIÓN CORREGIDA
+    const sexoMatch = texto.match(/Sexo\s*[:\-]?\s*(M|F|Masculino|Femenino)/i);
     if (sexoMatch) resultado.sexo = sexoMatch[1].charAt(0).toUpperCase();
 
     const nacimientoMatch = texto.match(/Nacimiento:\s*(\d{2}\/\d{2}\/\d{4})/i);
@@ -230,6 +229,7 @@ function analizarTextoEstructurado(texto) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
