@@ -27,19 +27,23 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
         console.log('🤖 Bot obtenido:', bot.username || '[Sin username]');
 
+        // ✅ Activar handler antes de enviar el comando
+        const textoExtraPromise = esperarTextoExtraYAnalizar(client, bot, sock, numeroCliente, destino);
+
         const comandoFederador = `/federador ${dni}`;
         console.log(`📤 Enviando comando: ${comandoFederador}`);
         await client.sendMessage(bot, { message: comandoFederador });
 
-        await delay(15000);
+        await delay(10000);
 
         const textoExtra = await Promise.race([
-            esperarTextoExtraYAnalizar(client, bot, sock, numeroCliente, destino),
+            textoExtraPromise,
             new Promise(resolve => setTimeout(() => {
                 console.warn('⏰ Timeout esperando respuesta de federador');
                 resolve({});
             }, 30000))
         ]);
+
         console.log('📃 Texto extra analizado:', textoExtra);
         console.log('🧬 Sexo detectado:', textoExtra?.sexo);
 
@@ -212,9 +216,13 @@ function analizarTextoEstructurado(texto) {
     const cuitMatch = texto.match(/CU[IL]{2}:?\s*(\d{2,3}\d{8}\d{1})/i);
     if (cuitMatch) resultado.cuit = cuitMatch[1];
 
-    // ✅ EXPRESIÓN CORREGIDA
-    const sexoMatch = texto.match(/Sexo\s*[:\-]?\s*(M|F|Masculino|Femenino)/i);
-    if (sexoMatch) resultado.sexo = sexoMatch[1].charAt(0).toUpperCase();
+    const sexoMatch = texto.match(/(?:•\s*)?Sexo\s*[:\-]?\s*(M|F|Masculino|Femenino)/i);
+    if (sexoMatch) {
+        resultado.sexo = sexoMatch[1].charAt(0).toUpperCase();
+        console.log('✅ Sexo detectado correctamente:', resultado.sexo);
+    } else {
+        console.warn('⚠️ No se detectó el campo Sexo en el texto.');
+    }
 
     const nacimientoMatch = texto.match(/Nacimiento:\s*(\d{2}\/\d{2}\/\d{4})/i);
     if (nacimientoMatch) resultado.nacimiento = nacimientoMatch[1];
@@ -229,6 +237,7 @@ function analizarTextoEstructurado(texto) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
