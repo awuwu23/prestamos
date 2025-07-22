@@ -4,6 +4,8 @@ const esperarTextoExtraYAnalizar = require('./extraDataParser');
 const generarMensajeResultado = require('./mensajeResultado');
 const { consultarDominio } = require('./dominio');
 
+const delay = ms => new Promise(res => setTimeout(res, ms));
+
 async function validarIdentidad(dni, numeroCliente, sock, msg) {
     console.log('🚀 [validarIdentidad] Iniciando validación de identidad...');
     console.log('📍 DNI:', dni);
@@ -13,46 +15,51 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
     console.log('📨 Destino de respuesta:', destino);
 
     const client = await iniciarClienteTelegram();
-    console.log('📦 Resultado de iniciarClienteTelegram:', client);
+    console.log('📦 Resultado de iniciarClienteTelegram:', !!client);
 
     if (!client || typeof client.sendMessage !== 'function') {
-        console.error('⛔ Cliente Telegram no válido o método sendMessage inexistente.');
+        console.error('⛔ Cliente Telegram no válido.');
         return;
     }
 
     try {
         const bot = await client.getEntity(botUsername);
-        console.log('🤖 Bot obtenido:', bot?.username || '[Sin username]');
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
+        console.log('🤖 Bot obtenido:', bot.username || '[Sin username]');
 
-        // 1️⃣ Ejecutar /federador
+        // 1️⃣ Enviar /federador
         const comandoFederador = `/federador ${dni}`;
         console.log(`📤 Enviando comando: ${comandoFederador}`);
         await client.sendMessage(bot, { message: comandoFederador });
 
-        // 2️⃣ Esperar texto extra
+        // Esperar 15s
+        await delay(15000);
+
+        // 2️⃣ Analizar respuesta
         const textoExtra = await Promise.race([
             esperarTextoExtraYAnalizar(client, bot, sock, numeroCliente, destino),
             new Promise(resolve => setTimeout(() => {
-                console.warn('⚠️ Tiempo de espera excedido para texto extra.');
+                console.warn('⏰ Timeout esperando respuesta de federador');
                 resolve({});
             }, 30000))
         ]);
+        console.log('📃 Texto extra analizado:', textoExtra);
 
-        console.log('📃 Texto adicional analizado:', textoExtra);
-
-        // 3️⃣ Determinar sexo y enviar /dni
+        // 3️⃣ Enviar /dni
         const generoDetectado = textoExtra?.sexo?.toUpperCase().startsWith('M') ? 'M' : 'F';
         const comandoDni = `/dni ${dni} ${generoDetectado}`;
         console.log(`📤 Enviando comando: ${comandoDni}`);
         await client.sendMessage(bot, { message: comandoDni });
 
-        // 4️⃣ Consultar dominio si existe
+        // Esperar 15s
+        await delay(15000);
+
+        // 4️⃣ Consultar dominio si hay
         let dominioResultado = null;
         if (textoExtra?.dominio) {
             const dominio = textoExtra.dominio;
-            console.log(`⏳ Esperando 15s para consultar dominio principal: ${dominio}`);
-            await new Promise(resolve => setTimeout(resolve, 15000));
+            console.log(`⏳ Esperando 15s para consultar /dnrpa ${dominio}`);
+            await delay(15000);
             dominioResultado = await consultarDominio(dominio, client, bot);
             console.log('✅ Resultado de /dnrpa:', dominioResultado);
 
@@ -79,11 +86,13 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             }
         }
 
-        // 5️⃣ Ejecutar /work al final
-        const inicioWork = Date.now();
+        // 5️⃣ Enviar /work
         const comandoWork = `/work ${dni}`;
         console.log(`📤 Enviando comando: ${comandoWork}`);
         await client.sendMessage(bot, { message: comandoWork });
+
+        // Esperar 15s antes de esperar el PDF
+        await delay(15000);
 
         const resultado = await esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
         console.log('📊 Resultado PDF analizado:', resultado);
@@ -96,14 +105,6 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
                 });
             }
             return;
-        }
-
-        const tiempoTranscurrido = Date.now() - inicioWork;
-        const minimoEspera = 30000;
-        if (tiempoTranscurrido < minimoEspera) {
-            const esperaRestante = minimoEspera - tiempoTranscurrido;
-            console.log(`⏱️ Esperando ${esperaRestante} ms antes de enviar mensaje final...`);
-            await new Promise(resolve => setTimeout(resolve, esperaRestante));
         }
 
         // 6️⃣ Generar mensaje completo
@@ -120,10 +121,10 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         try {
             await sock.sendMessage(destino, { text: mensajePrincipal });
             if (mensajeVacunas) {
-                await new Promise(r => setTimeout(r, 1000));
+                await delay(1000);
                 await sock.sendMessage(destino, { text: mensajeVacunas });
             }
-            console.log('✅ Mensaje principal enviado correctamente.');
+            console.log('✅ Mensaje enviado correctamente.');
         } catch (err) {
             console.error('❌ Error al enviar mensaje por WhatsApp:', err);
         }
@@ -132,21 +133,22 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         return resultado;
 
     } catch (err) {
-        console.error('❌ Error en validarIdentidad:', err);
+        console.error('❌ Error general en validarIdentidad:', err);
         if (sock && destino) {
             await sock.sendMessage(destino, {
-                text: '⚠️ Hubo un error al procesar la validación. Intentalo más tarde.',
+                text: '⚠️ Hubo un error durante la validación.',
             });
         }
         return {
             deudas: 'Error',
-            motivo: 'Error durante la validación.',
+            motivo: 'Error durante la validación',
             acreedores: []
         };
     }
 }
 
 module.exports = validarIdentidad;
+
 
 
 
