@@ -1,41 +1,42 @@
-const fs = require('fs');
-const path = require('path');
 const { normalizarNumero } = require('./membresia');
+const MembresiaModel = require('./models').Membresia; // Asegurate de tener este modelo definido correctamente
 
-function cargarMembresias() {
-    const file = path.join(__dirname, 'membresias.json');
-    if (!fs.existsSync(file)) return {};
-    return JSON.parse(fs.readFileSync(file));
+function normalizarDestino(jid) {
+    if (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@g.us')) {
+        return jid;
+    }
+    if (/^\d+$/.test(jid)) {
+        return `${jid}@s.whatsapp.net`;
+    }
+    return jid;
 }
 
 async function mostrarMembresiasActivas(sock, respuestaDestino) {
     try {
-        const membresias = cargarMembresias();
-        const ahora = Date.now();
+        const ahora = new Date();
 
-        // Crear lista de membresías activas
-        const lista = Object.entries(membresias)
-            .map(([numero, datos]) => {
-                const inicio = new Date(datos.inicio);
-                const vence = new Date(datos.vence); // ✅ CAMPO CORRECTO
-                const diasRestantes = Math.floor((vence - ahora) / (1000 * 60 * 60 * 24));
-                const diasActiva = Math.floor((ahora - inicio) / (1000 * 60 * 60 * 24));
-                return {
-                    numero,
-                    nombre: datos.nombre || 'Sin nombre',
-                    diasRestantes,
-                    diasActiva
-                };
-            })
-            .filter(item => item.diasRestantes > 0)
-            .sort((a, b) => a.diasRestantes - b.diasRestantes);
+        // Obtener membresías activas desde MongoDB
+        const membresias = await MembresiaModel.find({ vence: { $gt: ahora } });
 
-        if (lista.length === 0) {
+        if (!membresias.length) {
             await sock.sendMessage(normalizarDestino(respuestaDestino), {
                 text: '📭 No hay membresías activas actualmente.'
             });
             return;
         }
+
+        const lista = membresias.map(m => {
+            const inicio = new Date(m.inicio);
+            const vence = new Date(m.vence);
+            const diasRestantes = Math.floor((vence - ahora) / (1000 * 60 * 60 * 24));
+            const diasActiva = Math.floor((ahora - inicio) / (1000 * 60 * 60 * 24));
+            return {
+                numero: m.numero,
+                nombre: m.nombre || 'Sin nombre',
+                diasRestantes,
+                diasActiva
+            };
+        }).sort((a, b) => a.diasRestantes - b.diasRestantes);
 
         let texto = '📋 *Membresías activas:*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
         lista.forEach((item, index) => {
@@ -55,17 +56,8 @@ async function mostrarMembresiasActivas(sock, respuestaDestino) {
     }
 }
 
-function normalizarDestino(jid) {
-    if (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@g.us')) {
-        return jid;
-    }
-    if (/^\d+$/.test(jid)) {
-        return `${jid}@s.whatsapp.net`;
-    }
-    return jid;
-}
-
 module.exports = { mostrarMembresiasActivas };
+
 
 
 
