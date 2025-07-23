@@ -16,7 +16,6 @@ let adminList = ['5493813885182', '54927338121162993'];
 const dueños = ['5493813885182', '54927338121162993'];
 let adminDetalle = {};
 
-// Cargar lista de admins y detalle desde archivos JSON
 if (fs.existsSync(adminFile)) {
     try {
         adminList = JSON.parse(fs.readFileSync(adminFile));
@@ -33,7 +32,6 @@ if (fs.existsSync(adminDetalleFile)) {
     }
 }
 
-// Guardar admins y detalles en archivos JSON
 function guardarAdmins() {
     try {
         fs.writeFileSync(adminFile, JSON.stringify(adminList, null, 2));
@@ -43,7 +41,6 @@ function guardarAdmins() {
     }
 }
 
-// Cargar ventas
 function cargarVentas() {
     if (!fs.existsSync(ventasPath)) fs.writeFileSync(ventasPath, '{}');
     try {
@@ -53,12 +50,10 @@ function cargarVentas() {
     }
 }
 
-// Guardar ventas
 function guardarVentas(ventas) {
     fs.writeFileSync(ventasPath, JSON.stringify(ventas, null, 2));
 }
 
-// Manejar comando /sub para asignar membresía
 async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administradores) {
     const adminNormalizado = normalizarNumero(numeroAdmin);
     const esDueño = dueños.includes(adminNormalizado);
@@ -82,15 +77,14 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     const posibleId = partes[2].replace(/\D/g, '');
     const nombre = partes.slice(posibleId.length > 11 ? 3 : 2).join(' ');
 
-    const yaTiene = verificarMembresia(numeroPrincipal);
+    const yaTiene = await verificarMembresia(numeroPrincipal);
     const idExtendido = posibleId.length > 11 ? posibleId : null;
 
     const adminInfo = adminDetalle[adminNormalizado] || { nombre: 'Admin desconocido', id: '-' };
 
     if (!yaTiene) {
-        // Crear membresía nueva
-        agregarMembresia(numeroPrincipal, idExtendido, nombre);
-        const tiempo = tiempoRestante(numeroPrincipal);
+        await agregarMembresia(numeroPrincipal, idExtendido, nombre);
+        const tiempo = await tiempoRestante(numeroPrincipal);
 
         await sock.sendMessage(`${numeroPrincipal}@s.whatsapp.net`, {
             text:
@@ -136,9 +130,8 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
         guardarVentas(ventas);
 
     } else {
-        // Renovar membresía y actualizar id extendido si es necesario
-        agregarMembresia(numeroPrincipal, idExtendido, nombre);
-        const tiempo = tiempoRestante(numeroPrincipal);
+        await agregarMembresia(numeroPrincipal, idExtendido, nombre);
+        const tiempo = await tiempoRestante(numeroPrincipal);
 
         await sock.sendMessage(respuestaDestino, {
             text: `🔄 *Membresía de ${numeroPrincipal} renovada y actualizada.*\n🕒 *Válida por:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).`
@@ -148,7 +141,6 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     return true;
 }
 
-// Manejar comando /id
 async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
     const id = normalizarNumero(numero);
     await sock.sendMessage(respuestaDestino, {
@@ -158,7 +150,6 @@ async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
     return true;
 }
 
-// Manejar comando /adm
 async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     const adminNormalizado = normalizarNumero(numeroAdmin);
     if (!dueños.includes(adminNormalizado)) {
@@ -226,7 +217,6 @@ async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     return true;
 }
 
-// Manejar comando /me
 async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     const id = normalizarNumero(numero);
     const esAdmin = adminList.includes(id);
@@ -254,8 +244,8 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
         return true;
     }
 
-    const activo = verificarMembresia(id);
-    const tiempo = tiempoRestante(id);
+    const activo = await verificarMembresia(id);
+    const tiempo = await tiempoRestante(id);
 
     if (activo) {
         await sock.sendMessage(respuestaDestino, {
@@ -272,7 +262,6 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     return true;
 }
 
-// Manejar comando /admins
 async function manejarAdmins(sock, respuestaDestino) {
     const ventas = cargarVentas();
 
@@ -312,7 +301,6 @@ module.exports = {
     manejarAdmins,
     adminList
 };
-
 
 
 

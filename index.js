@@ -9,10 +9,7 @@ const { Boom } = require('@hapi/boom');
 const http = require('http');
 const https = require('https');
 
-// ✅ Conexión a MongoDB Atlas
 const conectarMongo = require('./mongo');
-conectarMongo(); // ⬅ Conectarse antes de iniciar el bot
-
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
@@ -22,6 +19,9 @@ let socketGlobal = null;
 
 async function iniciarBot() {
   try {
+    // ⏳ Conexión a MongoDB
+    await conectarMongo();
+
     const { state, saveCreds } = await useMultiFileAuthState('session');
 
     const sock = makeWASocket({
@@ -105,7 +105,7 @@ async function iniciarBot() {
       }
     });
 
-    // 🔁 Keep-alive ping para evitar que Render duerma
+    // 🔁 Keep-alive ping para Render
     const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       const client = keepAliveUrl.startsWith('https') ? https : http;
