@@ -12,7 +12,7 @@ function normalizarNumero(numero) {
   return '549' + n;
 }
 
-// 📥 Cargar archivo de membresías (ahora desde Mongo)
+// 📥 Cargar membresías desde Mongo
 async function cargarMembresias() {
   const lista = await Membresia.find({});
   const resultado = {};
@@ -28,21 +28,21 @@ async function cargarMembresias() {
   return resultado;
 }
 
-// 💾 Guardar archivo de membresías (ahora automático con Mongo)
+// 💾 Guardado innecesario (se maneja con Mongo)
 function guardarMembresias(_) {
   console.log('📦 [MongoDB] Las membresías se guardan automáticamente.');
 }
 
-// ✅ Agregar membresía con número, idGrupo y nombre
+// ✅ Agregar o renovar membresía
 async function agregarMembresia(numero, idGrupo = null, nombre = '') {
   const n = normalizarNumero(numero);
   const ahora = Date.now();
   const unMes = 30 * 24 * 60 * 60 * 1000;
 
-  let membresias = await Membresia.findOne({ numero: n });
+  let membresia = await Membresia.findOne({ numero: n });
 
-  if (!membresias) {
-    membresias = new Membresia({
+  if (!membresia) {
+    membresia = new Membresia({
       numero: n,
       inicio: ahora,
       vence: ahora + unMes,
@@ -52,25 +52,25 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '') {
     });
     console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
   } else {
-    membresias.inicio = ahora;
-    membresias.vence = ahora + unMes;
-    membresias.nombre = nombre || membresias.nombre;
+    membresia.inicio = ahora;
+    membresia.vence = ahora + unMes;
+    membresia.nombre = nombre || membresia.nombre;
 
-    if (idGrupo && !membresias.ids.includes(idGrupo) && membresias.idGrupo !== idGrupo) {
-      membresias.ids.push(idGrupo);
+    if (idGrupo && !membresia.ids.includes(idGrupo) && membresia.idGrupo !== idGrupo) {
+      membresia.ids.push(idGrupo);
       console.log(`➕ ID extendido agregado: ${idGrupo} para ${n}`);
     } else {
       console.log(`🔄 Membresía renovada para ${n} (${nombre}).`);
     }
   }
 
-  await membresias.save();
+  await membresia.save();
 
   const fechaVencimiento = new Date(ahora + unMes).toLocaleString();
   console.log(`📆 Válida hasta: ${fechaVencimiento}`);
 }
 
-// ✅ Actualizar o asignar un idGrupo a membresía existente
+// ✅ Asignar ID de grupo
 async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   const n = normalizarNumero(numero);
   const m = await Membresia.findOne({ numero: n });
@@ -99,7 +99,7 @@ async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   await m.save();
 }
 
-// ✅ Verifica si número, idGrupo o alguno de los ids tiene membresía activa
+// ✅ Verificar membresía activa
 async function verificarMembresia(numero) {
   const n = normalizarNumero(numero);
   const ahora = Date.now();
@@ -116,7 +116,7 @@ async function verificarMembresia(numero) {
   return !!m;
 }
 
-// 🕓 Devuelve tiempo restante de membresía
+// 🕓 Tiempo restante
 async function tiempoRestante(numero) {
   const n = normalizarNumero(numero);
   const ahora = Date.now();
@@ -141,31 +141,7 @@ function calcularTiempo(ms) {
   return { dias, horas };
 }
 
-// ✅ Control de búsqueda gratuita (mantiene carga desde JSON para retrocompatibilidad)
-function cargarHistorial() {
-  if (!fs.existsSync(historialPath)) {
-    fs.writeFileSync(historialPath, '{}');
-    console.log('📂 Archivo historial_gratis.json creado.');
-    return {};
-  }
-  try {
-    return JSON.parse(fs.readFileSync(historialPath));
-  } catch (e) {
-    console.error('❌ [Error] No se pudo leer historial_gratis.json (archivo corrupto).');
-    return {};
-  }
-}
-
-function guardarHistorial(historial) {
-  try {
-    fs.writeFileSync(historialPath, JSON.stringify(historial, null, 2));
-    console.log('✅ Historial guardado correctamente.');
-  } catch (err) {
-    console.error('❌ [Error] No se pudo guardar historial:', err);
-  }
-}
-
-// ✅ Versión Mongo
+// ✅ Búsqueda gratuita - versión Mongo
 async function yaUsoBusquedaGratis(numero) {
   const n = normalizarNumero(numero);
   const uso = await HistorialGratis.findOne({ numero: n });
@@ -182,7 +158,7 @@ async function registrarBusquedaGratis(numero) {
   console.log(`🆓 Uso gratuito registrado para ${n}.`);
 }
 
-// ✅ LIMPIEZA AUTOMÁTICA de membresías vencidas + notificación
+// ✅ Limpieza automática de membresías vencidas
 async function limpiarMembresiasVencidas(sock = null) {
   const ahora = Date.now();
   const vencidas = await Membresia.find({ vence: { $lte: ahora } });
@@ -191,7 +167,7 @@ async function limpiarMembresiasVencidas(sock = null) {
     if (sock) {
       try {
         await sock.sendMessage(`${m.numero}@s.whatsapp.net`, {
-          text: `🔒 *Tu membresía ha expirado.*\n\nSi querés seguir usando el sistema, contactá con un administrador para renovarla.`
+          text: `🔒 *Tu membresía ha expirado.*\n\nSi querés seguir usando el sistema, contactá con un administrador para renovarla.\n\n📞 *Admin:* 3813885182`
         });
       } catch (e) {
         console.warn(`⚠️ No se pudo notificar a ${m.numero}:`, e.message);
@@ -214,17 +190,3 @@ module.exports = {
   guardarMembresias,
   limpiarMembresiasVencidas
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
