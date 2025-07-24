@@ -24,14 +24,11 @@ const manejarDnrpa = require('./comandos/dnrpa');
 const manejarValidacionDni = require('./comandos/validacionDni');
 const manejarConsultaLibre = require('./comandos/consultaLibre');
 
-// ✅ Cola centralizada
 const { agregarConsulta, obtenerEstado, procesarSiguiente } = require('./cola');
-
-// ✅ NUEVO: comando /membresias
 const { mostrarMembresiasActivas } = require('./membresiactiva');
 
 // ✅ MongoDB modelos
-const { Membresia, BusquedaGratis } = require('./models');
+const { Membresia, HistorialGratis } = require('./models');
 
 const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
@@ -51,16 +48,8 @@ async function manejarMensaje(sock, msg) {
     const esGrupoWhatsApp = from?.endsWith?.('@g.us') || false;
     const esGrupo = esGrupoTelegram || esGrupoWhatsApp;
 
-    console.log('\n📥 Nuevo mensaje recibido');
-    console.log('📍 Es grupo:', esGrupo);
-    console.log('📨 Remitente (msg.key.participant):', msg.key.participant);
-    console.log('📨 Remitente (msg.key.remoteJid):', msg.key.remoteJid);
-
     const senderJid = esGrupo ? msg.key.participant : msg.key.remoteJid;
-    if (!senderJid) {
-      console.warn('❌ No se pudo determinar el remitente.');
-      return;
-    }
+    if (!senderJid) return;
 
     const rawSender = senderJid.includes('@') ? senderJid.split('@')[0] : senderJid;
     const numeroSimple = normalizarNumero(rawSender);
@@ -71,24 +60,31 @@ async function manejarMensaje(sock, msg) {
     const esAdmin = adminList.includes(numeroSimple);
     const esDueño = dueños.includes(numeroSimple);
 
-    console.log('📤 ID usuario para membresía/admin:', idUsuario);
-    console.log('📤 Número simple:', numeroSimple);
+    console.log('\n📥 Nuevo mensaje recibido');
+    console.log('📍 Es grupo:', esGrupo);
+    console.log('📨 Remitente:', numeroSimple);
     console.log('👑 ¿Es admin?:', esAdmin);
     console.log('📦 Comando recibido:', comando);
 
     // ✅ Revisar membresía desde Mongo
     let tieneMembresia = false;
-    const miembro = await Membresia.findOne({ numero: idUsuario });
-    if (miembro && new Date(miembro.vence) > new Date()) {
+    const miembro = await Membresia.findOne({
+      $or: [
+        { numero: idUsuario },
+        { idGrupo: idUsuario },
+        { ids: idUsuario }
+      ],
+      vence: { $gt: Date.now() }
+    });
+
+    if (miembro) {
       tieneMembresia = true;
       if (!miembro.idGrupo || miembro.idGrupo !== idUsuario) {
-        console.log(`🔄 Actualizando idGrupo para ${idUsuario}`);
-        await Membresia.updateOne({ numero: idUsuario }, { idGrupo: idUsuario });
+        await actualizarIdGrupo(miembro.numero, idUsuario);
       }
     }
 
     if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
-      console.log(`🔒 Usuario en grupo de Telegram sin permisos: ${numeroSimple}`);
       return;
     }
 
@@ -100,7 +96,6 @@ async function manejarMensaje(sock, msg) {
     const esConsulta = esDNI || esPatente || esCelular || esCVU;
 
     // === Comandos ===
-
     if (comando === '/ID') {
       return await manejarId(sock, idUsuario, respuestaDestino, fakeSenderJid, esGrupo);
     }
@@ -110,7 +105,7 @@ async function manejarMensaje(sock, msg) {
     }
 
     if (comando === '/ME') {
-      return await manejarMe(sock, idUsuario, respuestaDestino, fakeSenderJid, esGrupo, () => tieneMembresia, tiempoRestante, adminList);
+      return await manejarMe(sock, idUsuario, respuestaDestino, fakeSenderJid, esGrupo);
     }
 
     if (comando.startsWith('/ADM ') || comando === '/ADM') {
@@ -158,13 +153,13 @@ async function manejarMensaje(sock, msg) {
     // === Consultas ===
     if (esConsulta) {
       if (!esAdmin && !esDueño && !tieneMembresia) {
-        const yaUso = await BusquedaGratis.findOne({ numero: idUsuario });
+        const yaUso = await HistorialGratis.findOne({ numero: idUsuario });
         if (yaUso) {
           return await sock.sendMessage(respuestaDestino, {
             text: '🔒 *Ya usaste tu búsqueda gratuita.*\n\n📞 Contactá al *3813885182* para adquirir una membresía y continuar.'
           });
         } else {
-          await BusquedaGratis.create({ numero: idUsuario, fecha: new Date() });
+          await HistorialGratis.create({ numero: idUsuario });
         }
       }
 
@@ -217,6 +212,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
