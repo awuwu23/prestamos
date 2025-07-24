@@ -68,36 +68,41 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     const partes = texto.trim().split(' ');
     if (partes.length < 3) {
         await sock.sendMessage(respuestaDestino, {
-            text: `📖 *Uso del comando /sub:*\n━━━━━━━━━━━━━━━━━━━━━━━\n✅ /sub <número> <idExtendido?> <nombre>\n\n📌 *Ejemplo:*\n/sub 3812345678 549XXXXXXXX Juan`
+            text: `📖 *Uso del comando /sub:*\n━━━━━━━━━━━━━━━━━━━━━━━\n✅ /sub <número> <id?> <nombre> <días?>\n\n📌 *Ejemplo:*\n/sub 3812345678 549XXXXXXXX Juan 15`
         });
         return true;
     }
 
     const numeroPrincipal = normalizarNumero(partes[1]);
     const posibleId = partes[2].replace(/\D/g, '');
-    const nombre = partes.slice(posibleId.length > 11 ? 3 : 2).join(' ');
+    const diasPersonalizado = parseInt(partes[partes.length - 1]);
+    const tieneDias = !isNaN(diasPersonalizado) && diasPersonalizado > 0 && diasPersonalizado <= 60;
 
-    const yaTiene = await verificarMembresia(numeroPrincipal);
+    const nombre = partes.slice(posibleId.length > 11 ? 3 : 2, tieneDias ? -1 : undefined).join(' ');
     const idExtendido = posibleId.length > 11 ? posibleId : null;
 
     const adminInfo = adminDetalle[adminNormalizado] || { nombre: 'Admin desconocido', id: '-' };
+    const yaTiene = await verificarMembresia(numeroPrincipal);
 
-    if (!yaTiene) {
-        await agregarMembresia(numeroPrincipal, idExtendido, nombre);
-        const tiempo = await tiempoRestante(numeroPrincipal);
+    const duracionDias = tieneDias ? diasPersonalizado : 30;
 
-        await sock.sendMessage(`${numeroPrincipal}@s.whatsapp.net`, {
-            text:
-`🎉 *¡Membresía activada exitosamente!*
+    await agregarMembresia(numeroPrincipal, idExtendido, nombre, duracionDias, adminInfo.nombre);
+    const tiempo = await tiempoRestante(numeroPrincipal);
+
+    await sock.sendMessage(`${numeroPrincipal}@s.whatsapp.net`, {
+        text:
+`🎉 *¡Tu membresía fue activada exitosamente!*
 ━━━━━━━━━━━━━━━━━━━━━━━
-🕒 *Vencimiento:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).
-👤 *Vendedor:* ${adminInfo.nombre} (${adminNormalizado})
-📖 *Usá /me para ver el estado de tu membresía.*
+🕒 *Días disponibles:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s)
+👑 *Acceso ilimitado al bot*
+👤 *Vendedor:* ${adminInfo.nombre}
+📖 Usá */me* para ver tu membresía.
+📜 Usá */menu* para ver las funciones disponibles.
 ━━━━━━━━━━━━━━━━━━━━━━━`
-        });
+    });
 
-        await sock.sendMessage(respuestaDestino, {
-            text:
+    await sock.sendMessage(respuestaDestino, {
+        text:
 `💳 *Datos para cobrar al cliente*
 ━━━━━━━━━━━━━━━━━━━━━━━
 🧑‍💻 *Cliente:* ${nombre}
@@ -110,32 +115,26 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
 💸 *Monto sugerido:* $5.000
 ━━━━━━━━━━━━━━━━━━━━━━━
 👑 *Vendedor:* ${adminInfo.nombre} (${adminNormalizado})`
-        });
+    });
 
-        for (const dueño of dueños) {
-            await sock.sendMessage(`${dueño}@s.whatsapp.net`, {
-                text:
+    for (const dueño of dueños) {
+        await sock.sendMessage(`${dueño}@s.whatsapp.net`, {
+            text:
 `🔔 *Nueva membresía registrada*
 ━━━━━━━━━━━━━━━━━━━━━━━
 👑 *Admin:* ${adminInfo.nombre}
 📞 *Número:* ${adminNormalizado}
 🆔 *ID:* ${adminInfo.id || '-'}
 👤 *Cliente:* ${numeroPrincipal} - ${nombre}
+⏳ *Días:* ${duracionDias}
 ━━━━━━━━━━━━━━━━━━━━━━━`
-            });
-        }
+        });
+    }
 
+    if (!yaTiene) {
         const ventas = cargarVentas();
         ventas[adminNormalizado] = (ventas[adminNormalizado] || 0) + 1;
         guardarVentas(ventas);
-
-    } else {
-        await agregarMembresia(numeroPrincipal, idExtendido, nombre);
-        const tiempo = await tiempoRestante(numeroPrincipal);
-
-        await sock.sendMessage(respuestaDestino, {
-            text: `🔄 *Membresía de ${numeroPrincipal} renovada y actualizada.*\n🕒 *Válida por:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).`
-        });
     }
 
     return true;
@@ -249,7 +248,7 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
 
     if (activo) {
         await sock.sendMessage(respuestaDestino, {
-            text: `📆 *Membresía activa*\n━━━━━━━━━━━━━━━━━━━━━━━\n⏳ *Vence en:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).\n💡 *Usá /menu para ver opciones.*`,
+            text: `📆 *Membresía activa*\n━━━━━━━━━━━━━━━━━━━━━━━\n⏳ *Vence en:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).\n💡 Usá */menu* para ver funciones.\n📌 Recordá que el vendedor fue quien te activó la membresía.`,
             mentions: esGrupo ? [senderJid] : [],
         });
     } else {
@@ -301,6 +300,7 @@ module.exports = {
     manejarAdmins,
     adminList
 };
+
 
 
 

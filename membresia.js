@@ -22,6 +22,7 @@ async function cargarMembresias() {
       vence: m.vence,
       nombre: m.nombre,
       idGrupo: m.idGrupo,
+      vendedor: m.vendedor || null,
       ids: m.ids || []
     };
   }
@@ -33,11 +34,11 @@ function guardarMembresias(_) {
   console.log('📦 [MongoDB] Las membresías se guardan automáticamente.');
 }
 
-// ✅ Agregar o renovar membresía
-async function agregarMembresia(numero, idGrupo = null, nombre = '') {
+// ✅ Agregar o renovar membresía con días personalizados
+async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracion = 30, vendedor = null) {
   const n = normalizarNumero(numero);
   const ahora = Date.now();
-  const unMes = 30 * 24 * 60 * 60 * 1000;
+  const duracion = Math.min(diasDuracion, 60) * 24 * 60 * 60 * 1000;
 
   let membresia = await Membresia.findOne({ numero: n });
 
@@ -45,16 +46,18 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '') {
     membresia = new Membresia({
       numero: n,
       inicio: ahora,
-      vence: ahora + unMes,
+      vence: ahora + duracion,
       nombre,
       idGrupo: idGrupo || null,
-      ids: []
+      ids: [],
+      vendedor: vendedor || null
     });
     console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
   } else {
     membresia.inicio = ahora;
-    membresia.vence = ahora + unMes;
+    membresia.vence = ahora + duracion;
     membresia.nombre = nombre || membresia.nombre;
+    membresia.vendedor = vendedor || membresia.vendedor;
 
     if (idGrupo && !membresia.ids.includes(idGrupo) && membresia.idGrupo !== idGrupo) {
       membresia.ids.push(idGrupo);
@@ -66,7 +69,7 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '') {
 
   await membresia.save();
 
-  const fechaVencimiento = new Date(ahora + unMes).toLocaleString();
+  const fechaVencimiento = new Date(ahora + duracion).toLocaleString();
   console.log(`📆 Válida hasta: ${fechaVencimiento}`);
 }
 
