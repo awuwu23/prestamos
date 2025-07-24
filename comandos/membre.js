@@ -89,17 +89,23 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     await agregarMembresia(numeroPrincipal, idExtendido, nombre, duracionDias, adminInfo.nombre);
     const tiempo = await tiempoRestante(numeroPrincipal);
 
-    await sock.sendMessage(`${numeroPrincipal}@s.whatsapp.net`, {
-        text:
-`🎉 *¡Tu membresía fue activada exitosamente!*
+    const jidUsuario = `${numeroPrincipal}@s.whatsapp.net`;
+    try {
+        await sock.sendMessage(jidUsuario, {
+            text:
+`🎉 *¡Tu membresía fue activada!*
 ━━━━━━━━━━━━━━━━━━━━━━━
-🕒 *Días disponibles:* ${tiempo.dias} día(s) y ${tiempo.horas} hora(s)
-👑 *Acceso ilimitado al bot*
-👤 *Vendedor:* ${adminInfo.nombre}
-📖 Usá */me* para ver tu membresía.
-📜 Usá */menu* para ver las funciones disponibles.
-━━━━━━━━━━━━━━━━━━━━━━━`
-    });
+🔓 Acceso *ilimitado* al bot durante *${tiempo.dias} día(s)* y *${tiempo.horas} hora(s)*.
+👤 *Activada por:* ${adminInfo.nombre} (${adminNormalizado})
+📖 Comandos útiles:
+• /me → Ver tu membresía
+• /menu → Ver funciones del bot
+━━━━━━━━━━━━━━━━━━━━━━━
+📞 *Consultas:* 3813885182`
+        });
+    } catch (e) {
+        console.warn(`⚠️ No se pudo enviar mensaje a ${numeroPrincipal}:`, e.message);
+    }
 
     await sock.sendMessage(respuestaDestino, {
         text:
@@ -300,6 +306,7 @@ module.exports = {
     manejarAdmins,
     adminList
 };
+
 
 
 
