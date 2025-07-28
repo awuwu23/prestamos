@@ -1,3 +1,5 @@
+const { buscarLicenciaDesdeTelegram } = require('./federador'); // ✅ Nuevo import
+
 function formatearHistorial(historial) {
     return historial.map((item, i) => ` ${i + 1}. ${item}`).join('\n');
 }
@@ -74,11 +76,21 @@ ${dominioData.textoPlano}
 `.trim();
     }
 
+    // ✅ Consultar licencia con federador.js
+    let mensajeLicencia = '';
+    try {
+        const sexoSimplificado = (sexo || '').toLowerCase().startsWith('f') ? 'F' : 'M';
+        mensajeLicencia = await buscarLicenciaDesdeTelegram(dni, sexoSimplificado);
+    } catch (e) {
+        console.error('❌ Error al consultar licencia desde federador.js:', e.message);
+        mensajeLicencia = '\n\n⚠️ No se pudo consultar el estado de la licencia en este momento.';
+    }
+
     // ❌ Ya no consultamos vacunas
     let mensajeVacunas = '';
 
     return {
-        mensajePrincipal,
+        mensajePrincipal: mensajePrincipal + mensajeLicencia,
         mensajeVacunas
     };
 }
