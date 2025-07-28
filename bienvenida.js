@@ -58,7 +58,7 @@ Este sistema te permite acceder a información *verificada*, de forma rápida y 
 • PDF (Veraz/Nosis) ➤ Análisis automático
 • Escribe /me para saber el estado de tu membresia
 
-💳 *Membresía*: Solo $10.000/mes – consultas ilimitadas, soporte y acceso completo  
+💳 *Membresía*: Solo $15.000/mes – consultas ilimitadas, soporte y acceso completo  
 
 🎁 *¡Primera búsqueda GRATIS!*
 
