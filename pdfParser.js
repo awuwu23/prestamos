@@ -28,14 +28,17 @@ async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
                 const fromBot = msg.senderId && msg.senderId.equals(bot.id);
                 if (!fromBot) return;
 
+                // 📩 Guardar textos intermedios
                 if (msg.message && !msg.media) {
                     console.log('📩 Texto recibido:', msg.message);
                     textos.push(msg.message);
                     return;
                 }
 
+                // 📄 Detectar documento PDF
                 if (msg.media?.document) {
-                    const fileName = msg.media.document.attributes.find(attr => attr.fileName)?.fileName || '';
+                    const fileNameAttr = msg.media.document.attributes.find(attr => attr.fileName);
+                    const fileName = fileNameAttr?.fileName || `informe_${numeroCliente}_${Date.now()}.pdf`;
                     console.log(`📁 Documento detectado: ${fileName}`);
                     if (!fileName.endsWith('.pdf')) return;
 
@@ -63,6 +66,7 @@ async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
                     const nivelSocio = (texto.match(/Nivel Socioecon[oó]mico.*?:\s*(.*)/i) || [])[1] || 'No indicado';
                     const referencias = (texto.match(/Referencias comerciales.*?:\s*(.*)/i) || [])[1] || 'Sin referencias';
 
+                    // 👶 Calcular edad
                     let edad = null;
                     const nacimientoMatch = texto.match(/Fecha de nacimiento\s*:? (\d{2}\/\d{2}\/\d{4})/i);
                     if (nacimientoMatch) {
@@ -92,22 +96,38 @@ async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
                     client.removeEventHandler(handler);
 
                     // ✅ Enviar el PDF al grupo o privado
-                    if (sock && destino) {
-                        await sock.sendMessage(destino, {
-                            document: buffer,
-                            mimetype: 'application/pdf',
-                            fileName: fileName || 'informe_nosis.pdf'
-                        });
-                    }
-
-                    // ✅ Reenviar los textos (si hay varios intermedios)
-                    if (sock && destino && textos.length > 2) {
-                        for (let i = 1; i < textos.length - 1; i++) {
-                            await sock.sendMessage(destino, { text: textos[i] });
+                    if (sock && destino && buffer?.length > 10000) {
+                        try {
+                            await sock.sendMessage(destino, {
+                                document: buffer,
+                                mimetype: 'application/pdf',
+                                fileName
+                            });
+                            console.log('✅ PDF enviado correctamente por WhatsApp.');
+                        } catch (err) {
+                            console.error('❌ Error al enviar PDF por WhatsApp:', err);
                         }
                     }
 
-                    resolve({
+                    // 🧾 Reenviar textos intermedios útiles
+                    if (sock && destino && textos.length > 2) {
+                        for (let i = 1; i < textos.length - 1; i++) {
+                            try {
+                                await sock.sendMessage(destino, { text: textos[i] });
+                            } catch (err) {
+                                console.warn('⚠️ Error reenviando texto intermedio:', err);
+                            }
+                        }
+                    }
+
+                    // ✅ Confirmación final al usuario
+                    if (sock && destino) {
+                        await sock.sendMessage(destino, {
+                            text: '✅ *Consulta finalizada.* Gracias por tu paciencia.'
+                        });
+                    }
+
+                    return resolve({
                         deudas: rechazado || tieneDeudas ? 'Sí' : 'No',
                         acreedores,
                         rechazado,
@@ -118,9 +138,10 @@ async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
                         sexo,
                         validacionesCompletas,
                         pdfBuffer: buffer,
-                        pdfFileName: fileName || 'informe_nosis.pdf'
+                        pdfFileName: fileName
                     });
                 }
+
             } catch (err) {
                 if (!resolved) {
                     resolved = true;
