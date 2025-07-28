@@ -33,6 +33,9 @@ const { Membresia, HistorialGratis } = require('./models');
 const enProceso = new Set();
 const dueños = ['5493813885182', '54927338121162993', '6500959070'];
 
+const cooldowns = new Map();
+const COOLDOWN_MS = 30000;
+
 function esTelegram(sock) {
   return typeof sock.sendMessage === 'function' && !sock.ev;
 }
@@ -84,9 +87,7 @@ async function manejarMensaje(sock, msg) {
       }
     }
 
-    if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) {
-      return;
-    }
+    if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) return;
 
     const textoPlano = comando.replace(/[^A-Z0-9]/gi, '');
     const esDNI = /^\d{7,8}$/.test(comando);
@@ -121,25 +122,11 @@ async function manejarMensaje(sock, msg) {
       return await manejarSub(sock, idUsuario, texto, respuestaDestino, adminList);
     }
 
-    if (comando === '/CEL') {
-      return await manejarCel(sock, msg, comando, idUsuario);
-    }
-
-    if (comando === '/MENU') {
-      return await manejarMenu(sock, respuestaDestino, fakeSenderJid, esGrupo);
-    }
-
-    if (comando === '/REGISTRAR') {
-      return await manejarRegistrar(sock, msg, idUsuario);
-    }
-
-    if (comando.startsWith('/DNRPA')) {
-      return await manejarDnrpa(sock, comando, respuestaDestino, fakeSenderJid, esGrupo, idUsuario);
-    }
-
-    if (comando.startsWith('/CREDITO ')) {
-      return await manejarCredito(sock, comando, respuestaDestino, fakeSenderJid, esGrupo);
-    }
+    if (comando === '/CEL') return await manejarCel(sock, msg, comando, idUsuario);
+    if (comando === '/MENU') return await manejarMenu(sock, respuestaDestino, fakeSenderJid, esGrupo);
+    if (comando === '/REGISTRAR') return await manejarRegistrar(sock, msg, idUsuario);
+    if (comando.startsWith('/DNRPA')) return await manejarDnrpa(sock, comando, respuestaDestino, fakeSenderJid, esGrupo, idUsuario);
+    if (comando.startsWith('/CREDITO ')) return await manejarCredito(sock, comando, respuestaDestino, fakeSenderJid, esGrupo);
 
     if (comando === '/MEMBRESIAS') {
       if (!esDueño) {
@@ -162,6 +149,18 @@ async function manejarMensaje(sock, msg) {
           await HistorialGratis.create({ numero: idUsuario });
         }
       }
+
+      // ⏳ Cooldown antispam por usuario
+      if (cooldowns.has(idUsuario)) {
+        const restante = Date.now() - cooldowns.get(idUsuario);
+        if (restante < COOLDOWN_MS) {
+          const segundos = Math.ceil((COOLDOWN_MS - restante) / 1000);
+          return await sock.sendMessage(respuestaDestino, {
+            text: `⏳ Esperá ${segundos}s antes de hacer otra consulta.`
+          });
+        }
+      }
+      cooldowns.set(idUsuario, Date.now());
 
       const agregado = agregarConsulta(sock, {
         idUsuario,
@@ -212,6 +211,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
