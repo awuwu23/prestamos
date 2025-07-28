@@ -2,10 +2,10 @@
   "name": "informesshelby",
   "version": "1.0.0",
   "description": "Bot de informes Shelby para WhatsApp y Telegram, optimizado para Render con keepalive.",
-  "main": "keepalive.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node keepalive.js",
-    "dev": "nodemon keepalive.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "keywords": [
     "whatsapp",
