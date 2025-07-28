@@ -1,10 +1,60 @@
-const { buscarLicenciaDesdeTelegram } = require('./federador'); // ✅ Nuevo import
+const fs = require('fs');
+const path = require('path');
+const pdfParse = require('pdf-parse');
+const { buscarLicenciaDesdeTelegram } = require('./federador');
 
 function formatearHistorial(historial) {
     return historial.map((item, i) => ` ${i + 1}. ${item}`).join('\n');
 }
 
-async function generarMensajeResultado(dni, resultado, textoExtra = '', dominioData = null) {
+async function esperar(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// 🔎 Buscar PDF tras comando /nosis
+async function consultarNosisDesdeTelegram(client, dni, sock, jid) {
+    try {
+        // Enviar /nosis al bot
+        await client.sendMessage('expertoPDF_Bot', { message: `/nosis ${dni}` });
+
+        console.log('⌛ Esperando PDF...');
+        const pdfMessage = await client.waitForEvent('newMessage', (event) => {
+            return event.message?.media && event.message.media.document?.mimeType === 'application/pdf';
+        }, 60000); // 60s timeout
+
+        const document = pdfMessage.message.media.document;
+        const buffer = await client.downloadMedia(document);
+
+        const fileName = `nosis_${dni}.pdf`;
+        const filePath = path.join(__dirname, 'temp', fileName);
+        fs.writeFileSync(filePath, buffer);
+
+        // Analizar contenido del PDF
+        const data = await pdfParse(buffer);
+        const textoPdf = data.text.trim().slice(0, 2000); // Limitamos tamaño para no saturar mensaje
+
+        // Enviar PDF al WhatsApp del usuario
+        await sock.sendMessage(jid, {
+            document: fs.readFileSync(filePath),
+            fileName: fileName,
+            mimetype: 'application/pdf'
+        });
+
+        console.log(`✅ PDF de Nosis enviado al usuario (${fileName})`);
+
+        return `
+
+📄 *Informe Nosis (resumen):*
+${textoPdf || 'Sin texto extraído del PDF.'}
+`;
+
+    } catch (e) {
+        console.error('❌ Error al obtener PDF de Nosis:', e.message);
+        return '\n⚠️ No se pudo obtener el informe de Nosis.';
+    }
+}
+
+async function generarMensajeResultado(dni, resultado, textoExtra = '', dominioData = null, client, sock, jid) {
     if (textoExtra && typeof textoExtra === 'object') {
         resultado.nombreCompleto = resultado.nombreCompleto || textoExtra.nombreCompleto;
         resultado.cuit = resultado.cuit || textoExtra.cuit;
@@ -51,10 +101,10 @@ async function generarMensajeResultado(dni, resultado, textoExtra = '', dominioD
 
 ╭━━ 🚗 *Vehículos registrados*
 ${vehiculos.length
-  ? vehiculos.map((v, i) =>
-      ` ${i + 1}. ${v.dominio || 'N/D'} - ${v.marca || 'Marca N/D'} ${v.modelo || 'Modelo N/D'} (${v.año || 'Año N/D'})`
-    ).join('\n')
-  : ' No disponibles'}
+        ? vehiculos.map((v, i) =>
+            ` ${i + 1}. ${v.dominio || 'N/D'} - ${v.marca || 'Marca N/D'} ${v.modelo || 'Modelo N/D'} (${v.año || 'Año N/D'})`
+        ).join('\n')
+        : ' No disponibles'}
 
 ╭━━ 🧾 *Historial laboral*
 ${historialLaboral.length ? formatearHistorial(historialLaboral) : ' No disponible'}
@@ -82,20 +132,24 @@ ${dominioData.textoPlano}
         const sexoSimplificado = (sexo || '').toLowerCase().startsWith('f') ? 'F' : 'M';
         mensajeLicencia = await buscarLicenciaDesdeTelegram(dni, sexoSimplificado);
     } catch (e) {
-        console.error('❌ Error al consultar licencia desde federador.js:', e.message);
-        mensajeLicencia = '\n\n⚠️ No se pudo consultar el estado de la licencia en este momento.';
+        console.error('❌ Error al consultar licencia:', e.message);
+        mensajeLicencia = '\n\n⚠️ No se pudo consultar el estado de la licencia.';
     }
 
-    // ❌ Ya no consultamos vacunas
-    let mensajeVacunas = '';
+    // Esperamos 15 segundos antes de consultar Nosis
+    await esperar(15000);
+
+    // 🧠 Consultar y analizar PDF Nosis
+    const mensajeNosis = await consultarNosisDesdeTelegram(client, dni, sock, jid);
 
     return {
-        mensajePrincipal: mensajePrincipal + mensajeLicencia,
-        mensajeVacunas
+        mensajePrincipal: mensajePrincipal + mensajeLicencia + mensajeNosis,
+        mensajeVacunas: ''
     };
 }
 
 module.exports = generarMensajeResultado;
+
 
 
 
