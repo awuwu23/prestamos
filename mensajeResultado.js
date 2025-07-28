@@ -1,5 +1,3 @@
-const { buscarVacunasDesdeTelegram } = require('./federador');
-
 function formatearHistorial(historial) {
     return historial.map((item, i) => ` ${i + 1}. ${item}`).join('\n');
 }
@@ -76,17 +74,8 @@ ${dominioData.textoPlano}
 `.trim();
     }
 
-    // Obtener vacunas en mensaje separado
+    // ❌ Ya no consultamos vacunas
     let mensajeVacunas = '';
-    try {
-        const vacunas = await buscarVacunasDesdeTelegram(dni, sexo);
-        if (vacunas) {
-            mensajeVacunas = vacunas;
-        }
-    } catch (err) {
-        console.warn('⚠️ Error al buscar vacunas:', err.message);
-        mensajeVacunas = `\n\n💉 No se pudo consultar vacunas.`;
-    }
 
     return {
         mensajePrincipal,
@@ -95,6 +84,7 @@ ${dominioData.textoPlano}
 }
 
 module.exports = generarMensajeResultado;
+
 
 
 

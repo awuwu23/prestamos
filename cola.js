@@ -37,8 +37,17 @@ function procesarSiguiente(sock) {
     console.log(`🚀 Procesando consulta de ${consulta.idUsuario}`);
 
     consulta.fn()
+        .then(async () => {
+            // ✅ Confirmación al usuario tras finalizar consulta
+            await sock.sendMessage(consulta.destino, {
+                text: '✅ *Consulta finalizada.* Gracias por esperar.'
+            }).catch(() => {});
+        })
         .catch((err) => {
             console.error(`❌ Error procesando consulta de ${consulta.idUsuario}:`, err);
+            sock.sendMessage(consulta.destino, {
+                text: '⚠️ Ocurrió un error procesando tu consulta. Intentalo de nuevo más tarde.'
+            }).catch(() => {});
         })
         .finally(() => {
             // ⏳ Espera 15s antes de la siguiente consulta
@@ -53,6 +62,7 @@ module.exports = {
     obtenerEstado,
     procesarSiguiente
 };
+
 
 
 
