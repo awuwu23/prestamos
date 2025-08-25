@@ -17,6 +17,16 @@ const { limpiarMembresiasVencidas } = require('./membresia');
 
 let socketGlobal = null;
 
+// 🔧 Función para limpiar IDs (quita @lid y @s.whatsapp.net)
+function limpiarJid(jid) {
+  if (!jid) return null;
+  return jid
+    .toString()
+    .replace('@s.whatsapp.net', '')
+    .replace('@lid', '')
+    .replace('@g.us', ''); // en grupos, se maneja aparte
+}
+
 async function iniciarBot() {
   try {
     // ⏳ Conexión a MongoDB
@@ -85,13 +95,18 @@ async function iniciarBot() {
 
         if (!sender) continue;
 
+        // 🔧 Normalizar IDs antes de seguir
+        const remitenteLimpio = limpiarJid(sender);
+        const chatLimpio = limpiarJid(from);
+
         try {
           if (!isGroup) {
-            registrarUsuario(from);
-            await enviarBienvenida(sock, msg, from);
+            registrarUsuario(remitenteLimpio);
+            await enviarBienvenida(sock, msg, remitenteLimpio);
           }
 
-          await manejarMensaje(sock, msg);
+          // Pasamos el msg tal cual, pero ya tenemos ids limpios en caso de necesitarlos
+          await manejarMensaje(sock, msg, remitenteLimpio, chatLimpio, isGroup);
         } catch (err) {
           console.error('❌ Error procesando mensaje:', err);
           try {

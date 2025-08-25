@@ -54,9 +54,9 @@ function guardarVentas(ventas) {
     fs.writeFileSync(ventasPath, JSON.stringify(ventas, null, 2));
 }
 
+// 📌 Manejo de /sub
 async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administradores) {
     const adminNormalizado = normalizarNumero(numeroAdmin);
-    const esDueño = dueños.includes(adminNormalizado);
 
     if (!adminList.includes(adminNormalizado)) {
         await sock.sendMessage(respuestaDestino, {
@@ -86,7 +86,8 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
 
     const duracionDias = tieneDias ? diasPersonalizado : 30;
 
-    await agregarMembresia(numeroPrincipal, idExtendido, nombre, duracionDias, adminInfo.nombre);
+    // ✅ siempre guarda número + id extendido si lo hay
+    await agregarMembresia(numeroPrincipal, idExtendido || numeroPrincipal, nombre, duracionDias, adminInfo.nombre);
     const tiempo = await tiempoRestante(numeroPrincipal);
 
     const jidUsuario = `${numeroPrincipal}@s.whatsapp.net`;
@@ -146,6 +147,7 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     return true;
 }
 
+// 📌 Manejo de /id
 async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
     const id = normalizarNumero(numero);
     await sock.sendMessage(respuestaDestino, {
@@ -155,6 +157,7 @@ async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
     return true;
 }
 
+// 📌 Manejo de /adm
 async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     const adminNormalizado = normalizarNumero(numeroAdmin);
     if (!dueños.includes(adminNormalizado)) {
@@ -222,6 +225,7 @@ async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     return true;
 }
 
+// 📌 Manejo de /me
 async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     const id = normalizarNumero(numero);
     const esAdmin = adminList.includes(id);
@@ -267,6 +271,7 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     return true;
 }
 
+// 📌 Manejo de /admins
 async function manejarAdmins(sock, respuestaDestino) {
     const ventas = cargarVentas();
 
@@ -306,6 +311,7 @@ module.exports = {
     manejarAdmins,
     adminList
 };
+
 
 
 

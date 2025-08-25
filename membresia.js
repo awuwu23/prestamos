@@ -5,14 +5,26 @@ const { Membresia, HistorialGratis } = require('./models');
 const membresiasPath = path.join(__dirname, 'membresias.json');
 const historialPath = path.join(__dirname, 'historial_gratis.json');
 
+// 🔢 Normaliza números a formato 549XXXXXXXXXX
 function normalizarNumero(numero) {
+  if (!numero) return null;
   let n = numero.toString().replace(/\D/g, '');
   if (n.startsWith('549')) return n;
   if (n.startsWith('54')) return '549' + n.slice(2);
   return '549' + n;
 }
 
-// 📥 Cargar membresías desde Mongo
+// 🧹 Limpia JIDs de WhatsApp (soporta @s.whatsapp.net y @lid)
+function limpiarId(numeroOId) {
+  if (!numeroOId) return null;
+  return numeroOId
+    .toString()
+    .replace('@lid', '')
+    .replace('@s.whatsapp.net', '')
+    .trim();
+}
+
+// 📥 Cargar todas las membresías desde Mongo
 async function cargarMembresias() {
   const lista = await Membresia.find({});
   const resultado = {};
@@ -29,12 +41,12 @@ async function cargarMembresias() {
   return resultado;
 }
 
-// 💾 Guardado innecesario (se maneja con Mongo)
+// 💾 Guardado innecesario (MongoDB persiste solo)
 function guardarMembresias(_) {
   console.log('📦 [MongoDB] Las membresías se guardan automáticamente.');
 }
 
-// ✅ Agregar o renovar membresía con días personalizados
+// ✅ Crear o renovar membresía
 async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracion = 30, vendedor = null) {
   const n = normalizarNumero(numero);
   const ahora = Date.now();
@@ -49,19 +61,25 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
       vence: ahora + duracion,
       nombre,
       idGrupo: idGrupo || null,
-      ids: [],
+      ids: idGrupo ? [idGrupo] : [],
       vendedor: vendedor || null
     });
     console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
   } else {
     membresia.inicio = ahora;
     membresia.vence = ahora + duracion;
-    membresia.nombre = nombre || membresia.nombre;
-    membresia.vendedor = vendedor || membresia.vendedor;
+    if (nombre) membresia.nombre = nombre;
+    if (vendedor) membresia.vendedor = vendedor;
 
-    if (idGrupo && !membresia.ids.includes(idGrupo) && membresia.idGrupo !== idGrupo) {
-      membresia.ids.push(idGrupo);
-      console.log(`➕ ID extendido agregado: ${idGrupo} para ${n}`);
+    if (idGrupo && ![membresia.idGrupo, ...(membresia.ids || [])].includes(idGrupo)) {
+      if (!membresia.idGrupo) {
+        membresia.idGrupo = idGrupo;
+        console.log(`✅ ID principal vinculado: ${idGrupo} para ${n}.`);
+      } else {
+        if (!Array.isArray(membresia.ids)) membresia.ids = [];
+        membresia.ids.push(idGrupo);
+        console.log(`➕ ID extendido agregado: ${idGrupo} para ${n}`);
+      }
     } else {
       console.log(`🔄 Membresía renovada para ${n} (${nombre}).`);
     }
@@ -69,11 +87,11 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
 
   await membresia.save();
 
-  const fechaVencimiento = new Date(ahora + duracion).toLocaleString();
+  const fechaVencimiento = new Date(membresia.vence).toLocaleString();
   console.log(`📆 Válida hasta: ${fechaVencimiento}`);
 }
 
-// ✅ Asignar ID de grupo
+// ✅ Vincular un nuevo ID de grupo a una membresía
 async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   const n = normalizarNumero(numero);
   const m = await Membresia.findOne({ numero: n });
@@ -83,7 +101,7 @@ async function actualizarIdGrupo(numero, nuevoIdGrupo) {
     return;
   }
 
-  if (m.idGrupo === nuevoIdGrupo || (m.ids && m.ids.includes(nuevoIdGrupo))) {
+  if ([m.idGrupo, ...(m.ids || [])].includes(nuevoIdGrupo)) {
     console.log(`ℹ️ El ID extendido ${nuevoIdGrupo} ya está vinculado a ${n}.`);
     return;
   }
@@ -93,25 +111,25 @@ async function actualizarIdGrupo(numero, nuevoIdGrupo) {
     console.log(`✅ ID principal vinculado: ${nuevoIdGrupo} para ${n}.`);
   } else {
     if (!Array.isArray(m.ids)) m.ids = [];
-    if (!m.ids.includes(nuevoIdGrupo)) {
-      m.ids.push(nuevoIdGrupo);
-      console.log(`➕ ID adicional vinculado: ${nuevoIdGrupo} para ${n}.`);
-    }
+    m.ids.push(nuevoIdGrupo);
+    console.log(`➕ ID adicional vinculado: ${nuevoIdGrupo} para ${n}.`);
   }
 
   await m.save();
 }
 
-// ✅ Verificar membresía activa
-async function verificarMembresia(numero) {
-  const n = normalizarNumero(numero);
+// ✅ Verificar membresía activa (por número normalizado o ID extendido)
+async function verificarMembresia(numeroOId) {
+  if (!numeroOId) return false;
+  const limpio = limpiarId(numeroOId);
+  const n = normalizarNumero(limpio);
   const ahora = Date.now();
 
   const m = await Membresia.findOne({
     $or: [
       { numero: n },
-      { idGrupo: n },
-      { ids: n }
+      { idGrupo: limpio },
+      { ids: limpio }
     ],
     vence: { $gt: ahora }
   });
@@ -119,16 +137,18 @@ async function verificarMembresia(numero) {
   return !!m;
 }
 
-// 🕓 Tiempo restante
-async function tiempoRestante(numero) {
-  const n = normalizarNumero(numero);
+// 🕓 Tiempo restante de membresía
+async function tiempoRestante(numeroOId) {
+  if (!numeroOId) return null;
+  const limpio = limpiarId(numeroOId);
+  const n = normalizarNumero(limpio);
   const ahora = Date.now();
 
   const m = await Membresia.findOne({
     $or: [
       { numero: n },
-      { idGrupo: n },
-      { ids: n }
+      { idGrupo: limpio },
+      { ids: limpio }
     ],
     vence: { $gt: ahora }
   });
@@ -137,6 +157,7 @@ async function tiempoRestante(numero) {
   return calcularTiempo(m.vence - ahora);
 }
 
+// ⏳ Calcula días y horas desde ms
 function calcularTiempo(ms) {
   if (ms <= 0) return null;
   const dias = Math.floor(ms / (1000 * 60 * 60 * 24));
@@ -144,7 +165,7 @@ function calcularTiempo(ms) {
   return { dias, horas };
 }
 
-// ✅ Búsqueda gratuita - versión Mongo
+// ✅ Control de búsqueda gratuita
 async function yaUsoBusquedaGratis(numero) {
   const n = normalizarNumero(numero);
   const uso = await HistorialGratis.findOne({ numero: n });
@@ -161,7 +182,7 @@ async function registrarBusquedaGratis(numero) {
   console.log(`🆓 Uso gratuito registrado para ${n}.`);
 }
 
-// ✅ Limpieza automática de membresías vencidas
+// ✅ Limpieza de membresías vencidas
 async function limpiarMembresiasVencidas(sock = null) {
   const ahora = Date.now();
   const vencidas = await Membresia.find({ vence: { $lte: ahora } });
@@ -193,3 +214,5 @@ module.exports = {
   guardarMembresias,
   limpiarMembresiasVencidas
 };
+
+
