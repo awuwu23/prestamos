@@ -5,7 +5,7 @@ const {
   normalizarNumero,
   verificarMembresia,
 } = require('../membresia');
-const Admin = require('../models/Admin');
+const Admin = require('../../models/Admin'); // 👈 corregido: sube 2 niveles
 
 /* ============================
  * Config base
@@ -293,7 +293,6 @@ module.exports = {
   manejarAdm,
   manejarAdmins,
 };
-
 
 
 
