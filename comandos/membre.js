@@ -5,7 +5,7 @@ const {
   normalizarNumero,
   verificarMembresia,
 } = require('../membresia');
-const Admin = require('../models/Admin');
+const Admin = require('../../models/Admin');
 
 /* ============================
  * Config base
