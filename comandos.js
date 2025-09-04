@@ -30,6 +30,7 @@ const { mostrarMembresiasActivas } = require('./membresiactiva');
 
 // ✅ MongoDB modelos
 const { Membresia, HistorialGratis } = require('./models');
+const Admin = require('./models/Admin'); // 👑 Nuevo modelo para admins
 
 // =============================
 // 📌 Configuración
@@ -86,7 +87,9 @@ async function manejarMensaje(sock, msg) {
       ? `${numeroSimple}`
       : `${numeroSimple}@s.whatsapp.net`;
 
-    const esAdmin = adminList.includes(numeroSimple);
+    // 📌 Verificar admin/dueño en Mongo
+    const adminMongo = await Admin.findOne({ numero: numeroSimple });
+    const esAdmin = !!adminMongo;
     const esDueño = dueños.includes(numeroSimple);
 
     console.log('\n📥 Nuevo mensaje recibido');
@@ -144,15 +147,14 @@ async function manejarMensaje(sock, msg) {
     }
 
     if (comando === '/ME') {
-      // /ME ahora muestra también el JID crudo
       let estadoMsg = `📊 *Estado de tu membresía*\n\n`;
       estadoMsg += `🔑 JID crudo: ${senderJid}\n`;
       estadoMsg += `🧹 ID limpio: ${rawSender}\n`;
       estadoMsg += `📱 Número normalizado: ${idUsuario}\n\n`;
 
-      if (tieneMembresia) {
+      if (tieneMembresia || esAdmin) {
         const tiempo = await tiempoRestante(idUsuario);
-        estadoMsg += `✅ Membresía activa\n⏳ Restante: ${tiempo?.dias || 0} días, ${tiempo?.horas || 0} horas.`;
+        estadoMsg += `✅ Membresía activa\n⏳ Restante: ${tiempo?.dias || '∞'} días, ${tiempo?.horas || 0} horas.`;
       } else {
         estadoMsg += `⛔ No tenés membresía activa.`;
       }
@@ -168,36 +170,69 @@ async function manejarMensaje(sock, msg) {
       return await manejarAdm(sock, idUsuario, texto, respuestaDestino, adminList);
     }
 
-    if (comando.startsWith('/SUB ')) {
-      // Sintaxis: /SUB numero [lid] nombre dias
-      const args = texto.split(/\s+/);
-      if (args.length < 4) {
+    // 📌 Usar manejarSub (validación de admin/dueño incluida)
+    if (comando.startsWith('/SUB')) {
+      return await manejarSub(sock, idUsuario, texto, respuestaDestino);
+    }
+
+    // 📌 /ADD → solo dueño
+    if (comando.startsWith('/ADD ')) {
+      if (!esDueño) {
         return await sock.sendMessage(respuestaDestino, {
-          text: '⚠️ Uso correcto: /SUB <numero> [lid] <nombre> <dias>'
+          text: '⛔ *Solo el dueño puede usar este comando.*'
         });
       }
 
-      const numero = normalizarNumero(args[1]);
-      let lid = null;
-      let nombre = '';
-      let dias = 30;
-
-      if (/^\d{11,15}$/.test(args[2])) {
-        // si es un lid
-        lid = args[2];
-        nombre = args[3] || 'Usuario';
-        dias = parseInt(args[4] || '30', 10);
-      } else {
-        nombre = args[2];
-        dias = parseInt(args[3] || '30', 10);
+      const partes = texto.split(/\s+/);
+      if (partes.length < 3) {
+        return await sock.sendMessage(respuestaDestino, {
+          text: '⚠️ Uso correcto: /add <numero|id> <nombre> [dias]'
+        });
       }
 
-      await agregarMembresia(numero, lid, nombre, dias, idUsuario);
+      const numero = normalizarNumero(partes[1]);
+      const nombre = partes[2] || 'Admin';
+      const dias = parseInt(partes[3] || '36500', 10); // 100 años ≈ ilimitado
+
+      await agregarMembresia(numero, null, nombre, dias, 'DUEÑO');
+
+      await Admin.updateOne(
+        { numero },
+        { $set: { nombre, permSub: true, ilimitado: true } },
+        { upsert: true }
+      );
 
       return await sock.sendMessage(respuestaDestino, {
-        text: `✅ Membresía asignada a ${numero}\n👤 Nombre: ${nombre}\n📆 Duración: ${dias} días\n${
-          lid ? `🔗 Vinculado con ID extendido: ${lid}` : ''
-        }`
+        text: `✅ Admin agregado: ${nombre} (${numero})\n🔓 Membresía ilimitada otorgada.`
+      });
+    }
+
+    // 📌 /QUITARADD → solo dueño
+    if (comando.startsWith('/QUITARADD ')) {
+      if (!esDueño) {
+        return await sock.sendMessage(respuestaDestino, {
+          text: '⛔ *Solo el dueño puede usar este comando.*'
+        });
+      }
+
+      const partes = texto.split(/\s+/);
+      if (partes.length < 2) {
+        return await sock.sendMessage(respuestaDestino, {
+          text: '⚠️ Uso correcto: /quitaradd <numero|id>'
+        });
+      }
+
+      const numero = normalizarNumero(partes[1]);
+      const eliminado = await Admin.findOneAndDelete({ numero });
+
+      if (!eliminado) {
+        return await sock.sendMessage(respuestaDestino, {
+          text: `⚠️ El número ${numero} no estaba en la lista de admins.`
+        });
+      }
+
+      return await sock.sendMessage(respuestaDestino, {
+        text: `🗑️ Admin eliminado: ${numero}`
       });
     }
 
@@ -249,7 +284,6 @@ async function manejarMensaje(sock, msg) {
         }
       }
 
-      // Cooldown
       if (cooldowns.has(idUsuario)) {
         const restante = Date.now() - cooldowns.get(idUsuario);
         if (restante < COOLDOWN_MS) {
@@ -329,6 +363,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 
