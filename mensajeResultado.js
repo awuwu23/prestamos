@@ -1,101 +1,53 @@
-const { buscarLicenciaDesdeTelegram } = require('./federador'); // ✅ Nuevo import
-
-function formatearHistorial(historial) {
-    return historial.map((item, i) => ` ${i + 1}. ${item}`).join('\n');
-}
+// mensajeResultado.js
 
 async function generarMensajeResultado(dni, resultado, textoExtra = '', dominioData = null) {
-    if (textoExtra && typeof textoExtra === 'object') {
-        resultado.nombreCompleto = resultado.nombreCompleto || textoExtra.nombreCompleto;
-        resultado.cuit = resultado.cuit || textoExtra.cuit;
-        resultado.sexo = resultado.sexo || textoExtra.sexo;
-        resultado.nacimiento = resultado.nacimiento || textoExtra.nacimiento;
-        resultado.gmail = resultado.gmail || textoExtra.gmail;
-        resultado.domicilioTexto = resultado.domicilioTexto || textoExtra.domicilioTexto;
-        resultado.celulares = resultado.celulares || textoExtra.celulares;
-        resultado.familiares = resultado.familiares || textoExtra.familiares;
-        resultado.vehiculos = resultado.vehiculos || textoExtra.vehiculos;
-        resultado.historialLaboral = resultado.historialLaboral || textoExtra.historialLaboral;
-        resultado.educacion = resultado.educacion || textoExtra.educacion;
-        resultado.profesion = resultado.profesion || textoExtra.profesion;
-    }
+    const mensajePrincipal = `
+━━━━━━━━━━━━━━━━━━━━━━━
+✅ *Consulta finalizada correctamente*
+━━━━━━━━━━━━━━━━━━━━━━━
 
-    const {
-        deudas, acreedores, relacionLaboral, nivelSocio,
-        referencias, motivo, edad, domicilioTexto, gmail,
-        nombreCompleto, cuit, sexo, nacimiento,
-        profesion, educacion
-    } = resultado;
+⚡ Gracias por usar nuestro bot.  
+Con una *membresía activa* tendrás acceso completo y sin límites a todas las funciones.
 
-    const celulares = Array.isArray(resultado.celulares) ? resultado.celulares : [];
-    const familiares = Array.isArray(resultado.familiares) ? resultado.familiares : [];
-    const vehiculos = Array.isArray(resultado.vehiculos) ? resultado.vehiculos : [];
-    const historialLaboral = Array.isArray(resultado.historialLaboral) ? resultado.historialLaboral : [];
+💎 *Membresía Premium* — *$15.000 ARS / mes*
 
-    let mensajePrincipal = `
-📄 *Resumen financiero de datos para DNI ${dni}*
+╭━━━ ✨ Beneficios exclusivos
+┃ 🚀 Consultas *ilimitadas* y sin restricciones.  
+┃ 📊 Resultados completos en *segundos*.  
+┃ 🕒 Atención automática *24/7*.  
+┃ 🔒 Acceso exclusivo solo para miembros.  
+┃ 👑 Rol *VIP en el grupo* con beneficios extra.  
+┃ 🤝 Soporte directo con un administrador.  
+┃ 📂 Historial de consultas organizado.  
+┃ 🛡️ Privacidad y seguridad garantizada.  
+╰━━━━━━━━━━━━━━━
 
+👥 *¿Para quién es ideal este bot?*
+• ⚖️ *Abogados* → Acceso rápido a datos para agilizar trámites y demandas.  
+• 📑 *Gestores* → Información inmediata para tus clientes.  
+• 💵 *Prestamistas* → Verificar identidad y datos antes de otorgar créditos.  
+• 🕵️ *Investigadores* → Fuente ágil de información confiable.  
+• 👔 *Empresas y freelancers* → Verificación de clientes o socios.  
 
-╭━━ 💰 *Situación Financiera*
-• Deudas: ${deudas || 'No disponible'}
-• Acreedores: ${acreedores.length ? acreedores.join(', ') : 'Ninguno'}
-• Relación laboral: ${relacionLaboral}
-• Nivel socioeconómico: ${nivelSocio}
-• Referencias comerciales: ${referencias}
+📖 *Comandos principales*  
+• */me* → Ver tu membresía activa  
+• */menu* → Explorar todas las funciones  
+• */id* → Vincular con grupos  
+• */tokens* → Revisar tu saldo
 
-╭━━ 📡 *Datos de Contacto*
-• Domicilio: ${domicilioTexto || 'No encontrado'}
-• Correo: ${gmail || 'No encontrado'}
-• Celulares: ${celulares.length ? celulares.join(', ') : 'No disponibles'}
-• Familiares: ${familiares.length ? familiares.join(', ') : 'No disponibles'}
-
-╭━━ 🚗 *Vehículos registrados*
-${vehiculos.length
-  ? vehiculos.map((v, i) =>
-      ` ${i + 1}. ${v.dominio || 'N/D'} - ${v.marca || 'Marca N/D'} ${v.modelo || 'Modelo N/D'} (${v.año || 'Año N/D'})`
-    ).join('\n')
-  : ' No disponibles'}
-
-╭━━ 🧾 *Historial laboral*
-${historialLaboral.length ? formatearHistorial(historialLaboral) : ' No disponible'}
-
-╭━━ 📝 *Comentario*
-• ${motivo || 'N/D'}
+━━━━━━━━━━━━━━━━━━━━━━━
+📞 *Adquirí tu membresía ahora:* 3813885182  
+━━━━━━━━━━━━━━━━━━━━━━━
 `.trim();
-
-    if (dominioData) {
-        mensajePrincipal += `
-
-
-
-🚙 *Datos del vehículo consultado (/dnrpa)*
-
-╭━━ 📄 *Texto completo del vehículo (/dnrpa)*
-
-${dominioData.textoPlano}
-`.trim();
-    }
-
-    // ✅ Consultar licencia con federador.js
-    let mensajeLicencia = '';
-    try {
-        const sexoSimplificado = (sexo || '').toLowerCase().startsWith('f') ? 'F' : 'M';
-        mensajeLicencia = await buscarLicenciaDesdeTelegram(dni, sexoSimplificado);
-    } catch (e) {
-        console.error('❌ Error al consultar licencia desde federador.js:', e.message);
-        mensajeLicencia = '\n\n⚠️ No se pudo consultar el estado de la licencia en este momento.';
-    }
-
-    // ❌ Ya no consultamos vacunas
-    let mensajeVacunas = '';
 
     return {
-        mensajePrincipal: mensajePrincipal + mensajeLicencia,
-        mensajeVacunas
+        mensajePrincipal,
+        mensajeVacunas: ''
     };
 }
 
 module.exports = generarMensajeResultado;
+
 
 
 
