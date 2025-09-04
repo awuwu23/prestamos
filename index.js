@@ -13,7 +13,7 @@ const conectarMongo = require('./mongo');
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
-const { limpiarMembresiasVencidas } = require('./membresia');
+const { limpiarMembresiasVencidas, verificarMembresia, tiempoRestante } = require('./membresia');
 
 let socketGlobal = null;
 
@@ -27,13 +27,16 @@ function limpiarJid(jid) {
     .toString()
     .replace('@s.whatsapp.net', '')
     .replace('@lid', '')
-    .replace('@g.us', ''); // en grupos se maneja aparte
+    .replace('@g.us', '');
 }
 
 async function iniciarBot() {
   try {
+    console.log('⏳ Iniciando bot...');
+
     // ⏳ Conexión a MongoDB
     await conectarMongo();
+    console.log('✅ Conectado a MongoDB');
 
     const { state, saveCreds } = await useMultiFileAuthState('session');
 
@@ -49,6 +52,7 @@ async function iniciarBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // 🔗 Eventos de conexión
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
       if (qr) {
         qrcode.generate(qr, { small: true });
@@ -63,7 +67,7 @@ async function iniciarBot() {
         console.log(`❌ Conexión cerrada. Código: ${code}`);
 
         if (code === DisconnectReason.loggedOut || code === 440) {
-          console.log('🔒 Sesión cerrada o desconectada. Eliminá "session" y escaneá nuevamente.');
+          console.log('🔒 Sesión cerrada o desconectada. Eliminá la carpeta "session" y escaneá nuevamente.');
           process.exit(0);
         } else {
           console.log('🔁 Reintentando conexión en 3s...');
@@ -82,20 +86,24 @@ async function iniciarBot() {
       }
     });
 
+    // 📩 Manejo de mensajes
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       console.log('📩 Evento messages.upsert tipo:', type);
       if (type !== 'notify') return; // procesar solo notify
 
       for (const msg of messages) {
-        if (!msg.message || msg.key.fromMe || !msg.key.remoteJid) continue;
+        if (!msg.message || msg.key.fromMe || !msg.key.remoteJid) {
+          console.warn('⚠️ Mensaje vacío o ignorado (posible Bad MAC).');
+          continue;
+        }
 
         // 📌 Evitar mensajes duplicados
         const idMensaje = msg.key.id;
         if (mensajesProcesados.has(idMensaje)) {
+          console.log(`⏩ Mensaje duplicado ignorado: ${idMensaje}`);
           continue;
         }
         mensajesProcesados.add(idMensaje);
-        // Limpiar memoria después de 1 minuto
         setTimeout(() => mensajesProcesados.delete(idMensaje), 60000);
 
         const from = msg.key.remoteJid;
@@ -112,6 +120,15 @@ async function iniciarBot() {
         const chatLimpio = limpiarJid(from);
 
         try {
+          // 🛡️ Log especial de membresías
+          const tieneMembresia = await verificarMembresia(remitenteLimpio);
+          if (tieneMembresia) {
+            const tiempo = await tiempoRestante(remitenteLimpio);
+            console.log(`✅ Usuario ${remitenteLimpio} tiene membresía activa. Restante: ${tiempo?.dias || 0}d ${tiempo?.horas || 0}h`);
+          } else {
+            console.warn(`⛔ Usuario ${remitenteLimpio} aparece SIN membresía activa.`);
+          }
+
           if (!isGroup) {
             registrarUsuario(remitenteLimpio);
             await enviarBienvenida(sock, msg, remitenteLimpio);
