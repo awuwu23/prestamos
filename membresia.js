@@ -14,13 +14,14 @@ function normalizarNumero(numero) {
   return '549' + n;
 }
 
-// 🧹 Limpia JIDs de WhatsApp (soporta @s.whatsapp.net y @lid)
+// 🧹 Limpia JIDs de WhatsApp (soporta @s.whatsapp.net, @lid y @g.us)
 function limpiarId(numeroOId) {
   if (!numeroOId) return null;
   return numeroOId
     .toString()
     .replace('@lid', '')
     .replace('@s.whatsapp.net', '')
+    .replace('@g.us', '')
     .trim();
 }
 
@@ -137,6 +138,12 @@ async function verificarMembresia(numeroOId) {
     vence: { $gt: ahora }
   });
 
+  if (!m) {
+    console.warn(`⛔ Usuario ${numeroOId} → limpio: ${limpio} → normalizado: ${n} aparece SIN membresía activa.`);
+  } else {
+    console.log(`✅ Usuario ${n} tiene membresía activa (vence: ${new Date(m.vence).toLocaleString()}).`);
+  }
+
   return !!m;
 }
 
@@ -156,8 +163,14 @@ async function tiempoRestante(numeroOId) {
     vence: { $gt: ahora }
   });
 
-  if (!m) return null;
-  return calcularTiempo(m.vence - ahora);
+  if (!m) {
+    console.warn(`⏳ No se encontró tiempo restante para ${numeroOId} (limpio: ${limpio}, normalizado: ${n}).`);
+    return null;
+  }
+
+  const tiempo = calcularTiempo(m.vence - ahora);
+  console.log(`⏳ Tiempo restante para ${n}: ${tiempo.dias} días y ${tiempo.horas} horas.`);
+  return tiempo;
 }
 
 // ⏳ Calcula días y horas desde ms
@@ -172,6 +185,7 @@ function calcularTiempo(ms) {
 async function yaUsoBusquedaGratis(numero) {
   const n = normalizarNumero(numero);
   const uso = await HistorialGratis.findOne({ numero: n });
+  console.log(`🔎 Verificando si ${n} ya usó la búsqueda gratuita → ${uso ? 'Sí' : 'No'}`);
   return !!uso;
 }
 
@@ -217,6 +231,7 @@ module.exports = {
   guardarMembresias,
   limpiarMembresiasVencidas
 };
+
 
 
 
