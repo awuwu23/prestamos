@@ -30,13 +30,13 @@ const { mostrarMembresiasActivas } = require('./membresiactiva');
 
 // ✅ MongoDB modelos
 const { Membresia, HistorialGratis } = require('./models');
-const Admin = require('./models/Admin'); // 👑 Nuevo modelo para admins
+const Admin = require('./models/Admin'); // 👑 Modelo para admins
 
 // =============================
 // 📌 Configuración
 // =============================
 const enProceso = new Set();
-const dueños = ['5493813885182']; // 🔑 tu número admin dueño
+const dueños = ['5493813885182']; // 🔑 tu número dueño
 const cooldowns = new Map();
 const COOLDOWN_MS = 30000;
 
@@ -147,17 +147,22 @@ async function manejarMensaje(sock, msg) {
     }
 
     if (comando === '/ME') {
-      let estadoMsg = `📊 *Estado de tu membresía*\n\n`;
+      let estadoMsg = `📊 *Estado de tu cuenta*\n\n`;
       estadoMsg += `🔑 JID crudo: ${senderJid}\n`;
       estadoMsg += `🧹 ID limpio: ${rawSender}\n`;
       estadoMsg += `📱 Número normalizado: ${idUsuario}\n\n`;
 
-      if (tieneMembresia || esAdmin) {
+      if (esDueño) {
+        estadoMsg += `👑 Sos *DUEÑO* del bot → acceso total.\n`;
+      } else if (esAdmin) {
+        estadoMsg += `👑 Sos *ADMINISTRADOR* → permisos según configuración.\n`;
+      } else if (tieneMembresia) {
         const tiempo = await tiempoRestante(idUsuario);
-        estadoMsg += `✅ Membresía activa\n⏳ Restante: ${tiempo?.dias || '∞'} días, ${tiempo?.horas || 0} horas.`;
+        estadoMsg += `✅ Membresía activa\n⏳ Restante: ${tiempo?.dias || 0} días, ${tiempo?.horas || 0} horas.\n`;
       } else {
-        estadoMsg += `⛔ No tenés membresía activa.`;
+        estadoMsg += `⛔ No tenés membresía activa.\n`;
       }
+
       return await sock.sendMessage(respuestaDestino, { text: estadoMsg });
     }
 
@@ -170,7 +175,7 @@ async function manejarMensaje(sock, msg) {
       return await manejarAdm(sock, idUsuario, texto, respuestaDestino, adminList);
     }
 
-    // 📌 Usar manejarSub (validación de admin/dueño incluida)
+    // 📌 Usar manejarSub (validación incluida)
     if (comando.startsWith('/SUB')) {
       return await manejarSub(sock, idUsuario, texto, respuestaDestino);
     }
@@ -363,6 +368,7 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
+
 
 
 

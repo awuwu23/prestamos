@@ -13,7 +13,15 @@ const conectarMongo = require('./mongo');
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
-const { limpiarMembresiasVencidas, verificarMembresia, tiempoRestante, vincularIdExtendido } = require('./membresia');
+const {
+  limpiarMembresiasVencidas,
+  verificarMembresia,
+  tiempoRestante,
+  vincularIdExtendido
+} = require('./membresia');
+
+// ✅ Importar helpers de admin/dueño
+const { esAdmin, esDueño } = require('./comandos/membre');
 
 let socketGlobal = null;
 
@@ -45,7 +53,7 @@ async function iniciarBot() {
       printQRInTerminal: false,
       logger: P({ level: 'silent' }), // 🚫 No spamea logs de Baileys
       syncFullHistory: false,
-      markOnlineOnConnect: true,
+      markOnlineOnConnect: true
     });
 
     socketGlobal = sock;
@@ -60,14 +68,17 @@ async function iniciarBot() {
       }
 
       if (connection === 'close') {
-        const code = lastDisconnect?.error instanceof Boom
-          ? lastDisconnect.error.output.statusCode
-          : 0;
+        const code =
+          lastDisconnect?.error instanceof Boom
+            ? lastDisconnect.error.output.statusCode
+            : 0;
 
         console.log(`❌ Conexión cerrada. Código: ${code}`);
 
         if (code === DisconnectReason.loggedOut || code === 440) {
-          console.log('🔒 Sesión cerrada. Eliminá la carpeta "session" y escaneá nuevamente.');
+          console.log(
+            '🔒 Sesión cerrada. Eliminá la carpeta "session" y escaneá nuevamente.'
+          );
           process.exit(0);
         } else {
           console.log('🔁 Reintentando conexión en 3s...');
@@ -112,18 +123,28 @@ async function iniciarBot() {
         const chatLimpio = limpiarJid(from);
 
         try {
-          // 🛡️ Log y verificación de membresía
-          const tieneMembresia = await verificarMembresia(remitenteLimpio);
-          if (tieneMembresia) {
-            const tiempo = await tiempoRestante(remitenteLimpio);
-            console.log(`✅ Usuario ${remitenteLimpio} con membresía activa. Restante: ${tiempo?.dias || 0}d ${tiempo?.horas || 0}h`);
+          // 🛡️ Verificación de membresía (solo usuarios normales)
+          if (!(await esDueño(remitenteLimpio)) && !(await esAdmin(remitenteLimpio))) {
+            const tieneMembresia = await verificarMembresia(remitenteLimpio);
+            if (tieneMembresia) {
+              const tiempo = await tiempoRestante(remitenteLimpio);
+              console.log(
+                `✅ Usuario ${remitenteLimpio} con membresía activa. Restante: ${tiempo?.dias || 0}d ${tiempo?.horas || 0}h`
+              );
+            } else {
+              console.warn(
+                `⛔ Usuario ${remitenteLimpio} aparece SIN membresía activa.`
+              );
+            }
           } else {
-            console.warn(`⛔ Usuario ${remitenteLimpio} aparece SIN membresía activa.`);
+            console.log(`👑 ${remitenteLimpio} es dueño/admin → salteando verificación de membresía.`);
           }
 
           // 🧩 Vincular automáticamente IDs raros (@lid)
           if (sender.includes('@lid')) {
-            console.log(`🔗 Detectado @lid para ${remitenteLimpio}, intentando vincular con su número real...`);
+            console.log(
+              `🔗 Detectado @lid para ${remitenteLimpio}, intentando vincular con su número real...`
+            );
             await vincularIdExtendido(remitenteLimpio, sender);
           }
 
@@ -139,23 +160,30 @@ async function iniciarBot() {
           console.error('❌ Error procesando mensaje:', err.message);
           try {
             await sock.sendMessage(from, {
-              text: '⚠️ Error procesando tu mensaje. Intentá nuevamente.',
+              text: '⚠️ Error procesando tu mensaje. Intentá nuevamente.'
             });
           } catch (e) {
-            console.error('❌ No se pudo enviar mensaje de error:', e.message);
+            console.error(
+              '❌ No se pudo enviar mensaje de error:',
+              e.message
+            );
           }
         }
       }
     });
 
     // 🔁 Keep-alive ping para Render
-    const keepAliveUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const keepAliveUrl =
+      process.env.RENDER_EXTERNAL_URL ||
+      `http://localhost:${process.env.PORT || 3000}`;
     setInterval(() => {
       const client = keepAliveUrl.startsWith('https') ? https : http;
-      client.get(keepAliveUrl, res => res.on('data', () => {}))
-        .on('error', err => console.error('❌ Error en keepAlive:', err.message));
+      client
+        .get(keepAliveUrl, res => res.on('data', () => {}))
+        .on('error', err =>
+          console.error('❌ Error en keepAlive:', err.message)
+        );
     }, 25 * 1000);
-
   } catch (error) {
     console.error('❌ Error al iniciar el bot:', error.message);
     process.exit(1);
