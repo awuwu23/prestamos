@@ -1,6 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-
 const { limpiarNumero } = require('./cel');
 const { manejarComandosExtra } = require('./comandos2');
 const {
@@ -36,13 +33,26 @@ const dueños = ['5493813885182', '54927338121162993', '6500959070'];
 const cooldowns = new Map();
 const COOLDOWN_MS = 30000;
 
+// 📌 Set para evitar procesar duplicados
+const mensajesProcesados = new Set();
+
 function esTelegram(sock) {
   return typeof sock.sendMessage === 'function' && !sock.ev;
 }
 
 async function manejarMensaje(sock, msg) {
   try {
+    // 📌 Evitar procesar el mismo mensaje dos veces
+    const idMensaje = msg.key?.id;
+    if (idMensaje) {
+      if (mensajesProcesados.has(idMensaje)) return;
+      mensajesProcesados.add(idMensaje);
+      setTimeout(() => mensajesProcesados.delete(idMensaje), 60000); // limpiar en 60s
+    }
+
     const mensaje = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+    if (!mensaje.trim()) return; // ⬅️ ignorar mensajes vacíos (append sin texto)
+
     const texto = mensaje.trim();
     const comando = texto.toUpperCase();
     const from = msg.key.remoteJid;
@@ -150,7 +160,7 @@ async function manejarMensaje(sock, msg) {
         }
       }
 
-      // ⏳ Cooldown antispam por usuario
+      // ⏳ Cooldown antispam
       if (cooldowns.has(idUsuario)) {
         const restante = Date.now() - cooldowns.get(idUsuario);
         if (restante < COOLDOWN_MS) {
@@ -162,7 +172,7 @@ async function manejarMensaje(sock, msg) {
       }
       cooldowns.set(idUsuario, Date.now());
 
-      const agregado = agregarConsulta(sock, {
+      agregarConsulta(sock, {
         idUsuario,
         destino: respuestaDestino,
         fn: async () => {
@@ -187,6 +197,7 @@ async function manejarMensaje(sock, msg) {
       });
     }
 
+    // === Comandos extra (tokens, anuncios, seguidores) ===
     const manejado = await manejarComandosExtra(sock, msg, texto, idUsuario);
     if (manejado) return;
 

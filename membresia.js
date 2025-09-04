@@ -49,6 +49,8 @@ function guardarMembresias(_) {
 // ✅ Crear o renovar membresía
 async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracion = 30, vendedor = null) {
   const n = normalizarNumero(numero);
+  const idNorm = idGrupo ? normalizarNumero(idGrupo) : null;
+
   const ahora = Date.now();
   const duracion = Math.min(diasDuracion, 60) * 24 * 60 * 60 * 1000;
 
@@ -60,8 +62,8 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
       inicio: ahora,
       vence: ahora + duracion,
       nombre,
-      idGrupo: idGrupo || null,
-      ids: idGrupo ? [idGrupo] : [],
+      idGrupo: idNorm || null,
+      ids: idNorm ? [idNorm] : [],
       vendedor: vendedor || null
     });
     console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
@@ -71,14 +73,14 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
     if (nombre) membresia.nombre = nombre;
     if (vendedor) membresia.vendedor = vendedor;
 
-    if (idGrupo && ![membresia.idGrupo, ...(membresia.ids || [])].includes(idGrupo)) {
+    if (idNorm && ![membresia.idGrupo, ...(membresia.ids || [])].includes(idNorm)) {
       if (!membresia.idGrupo) {
-        membresia.idGrupo = idGrupo;
-        console.log(`✅ ID principal vinculado: ${idGrupo} para ${n}.`);
+        membresia.idGrupo = idNorm;
+        console.log(`✅ ID principal vinculado: ${idNorm} para ${n}.`);
       } else {
         if (!Array.isArray(membresia.ids)) membresia.ids = [];
-        membresia.ids.push(idGrupo);
-        console.log(`➕ ID extendido agregado: ${idGrupo} para ${n}`);
+        membresia.ids.push(idNorm);
+        console.log(`➕ ID extendido agregado: ${idNorm} para ${n}`);
       }
     } else {
       console.log(`🔄 Membresía renovada para ${n} (${nombre}).`);
@@ -94,6 +96,7 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
 // ✅ Vincular un nuevo ID de grupo a una membresía
 async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   const n = normalizarNumero(numero);
+  const idNorm = normalizarNumero(nuevoIdGrupo);
   const m = await Membresia.findOne({ numero: n });
 
   if (!m) {
@@ -101,18 +104,18 @@ async function actualizarIdGrupo(numero, nuevoIdGrupo) {
     return;
   }
 
-  if ([m.idGrupo, ...(m.ids || [])].includes(nuevoIdGrupo)) {
-    console.log(`ℹ️ El ID extendido ${nuevoIdGrupo} ya está vinculado a ${n}.`);
+  if ([m.idGrupo, ...(m.ids || [])].includes(idNorm)) {
+    console.log(`ℹ️ El ID extendido ${idNorm} ya está vinculado a ${n}.`);
     return;
   }
 
   if (!m.idGrupo) {
-    m.idGrupo = nuevoIdGrupo;
-    console.log(`✅ ID principal vinculado: ${nuevoIdGrupo} para ${n}.`);
+    m.idGrupo = idNorm;
+    console.log(`✅ ID principal vinculado: ${idNorm} para ${n}.`);
   } else {
     if (!Array.isArray(m.ids)) m.ids = [];
-    m.ids.push(nuevoIdGrupo);
-    console.log(`➕ ID adicional vinculado: ${nuevoIdGrupo} para ${n}.`);
+    m.ids.push(idNorm);
+    console.log(`➕ ID adicional vinculado: ${idNorm} para ${n}.`);
   }
 
   await m.save();
@@ -128,8 +131,8 @@ async function verificarMembresia(numeroOId) {
   const m = await Membresia.findOne({
     $or: [
       { numero: n },
-      { idGrupo: limpio },
-      { ids: limpio }
+      { idGrupo: n },
+      { ids: n }
     ],
     vence: { $gt: ahora }
   });
@@ -147,8 +150,8 @@ async function tiempoRestante(numeroOId) {
   const m = await Membresia.findOne({
     $or: [
       { numero: n },
-      { idGrupo: limpio },
-      { ids: limpio }
+      { idGrupo: n },
+      { ids: n }
     ],
     vence: { $gt: ahora }
   });
@@ -214,5 +217,6 @@ module.exports = {
   guardarMembresias,
   limpiarMembresiasVencidas
 };
+
 
 

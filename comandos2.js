@@ -1,29 +1,22 @@
-const { limpiarNumero, buscarCelularTelegram } = require('./cel');
-const { esCVUoCBU, limpiarCVU, buscarCVUTelegram } = require('./cvu');
-const {
-  agregarMembresia,
-  verificarMembresia,
-  tiempoRestante
-} = require('./membresia');
-const { adminList } = require('./comandos/membre');
-const { procesarAnuncio } = require('./anunciar');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const { adminList } = require('./comandos/membre');
+const { procesarAnuncio } = require('./anunciar');
 const { iniciarClienteTelegram } = require('./telegramClientNuevo');
 
 const API_URL = 'https://smmsat.com/api/v2';
 const API_KEY = 'c13032a392f3c76dbddc07d89d8e62b6';
 
-// ✅ Dueños (agrega número con y sin prefijo para grupo y privado)
+// ✅ Dueños autorizados
 const dueños = [
-  '5493813885182', // Dueño privado
-  '54927338121162993', // Dueño en grupo (ID extendido)
-  '3813885182', // Fallback sin prefijo
-  '27338121162993' // Fallback grupo sin prefijo
+  '5493813885182',
+  '54927338121162993',
+  '3813885182',
+  '27338121162993'
 ];
 
-// 📁 Tokens
+// 📁 Archivo donde guardamos los tokens
 const tokensFile = path.join(__dirname, './tokens.json');
 let tokens = {};
 if (fs.existsSync(tokensFile)) {
@@ -31,6 +24,13 @@ if (fs.existsSync(tokensFile)) {
 }
 function guardarTokens() {
   fs.writeFileSync(tokensFile, JSON.stringify(tokens, null, 2));
+}
+function normalizarNumero(numero) {
+  let n = numero.replace(/\D/g, '');
+  if (n.startsWith('54')) return n;
+  if (n.length > 13) return n;
+  if (n.length >= 10 && !n.startsWith('54')) return '54' + n;
+  return n;
 }
 function obtenerTokens(numero) {
   const num = normalizarNumero(numero);
@@ -46,25 +46,11 @@ function descontarTokens(numero, cantidad) {
   tokens[num] = Math.max((tokens[num] || 0) - cantidad, 0);
   guardarTokens();
 }
-function normalizarNumero(numero) {
-  let n = numero.replace(/\D/g, '');
 
-  // 🔥 Evitar agregar otro 54 si ya existe
-  if (n.startsWith('54')) return n;
-
-  // 🔥 Si es un ID largo de grupo (>13 dígitos), no modificar
-  if (n.length > 13) return n;
-
-  // 🔥 Agregar prefijo si es un número local
-  if (n.length >= 10 && !n.startsWith('54')) return '54' + n;
-
-  return n;
-}
-
-// 🕓 Pedidos pendientes por usuario
+// 🕓 Pedidos de seguidores en proceso
 let pedidosSeguidores = {};
 
-// 🔥 Cliente Telegram persistente
+// 🔥 Cliente de Telegram persistente
 let telegramClient = null;
 async function obtenerClienteTelegram() {
   if (!telegramClient) {
@@ -74,51 +60,43 @@ async function obtenerClienteTelegram() {
   return telegramClient;
 }
 
-// 🟢 Verificar si es dueño
+// 🟢 Verificar si es dueño o admin
 function esDueño(idUsuario) {
   const id = normalizarNumero(idUsuario);
-  const es = dueños.includes(id);
-  console.log(`👑 Verificando dueño: ${id} => ${es}`);
-  return es;
+  return dueños.includes(id);
 }
-
-// 🟢 Verificar si es admin
 function esAdmin(idUsuario) {
   const id = normalizarNumero(idUsuario);
-  const es = adminList.includes(id);
-  console.log(`🛡️ Verificando admin: ${id} => ${es}`);
-  return es;
+  return adminList.includes(id);
 }
 
+// 🚀 Manejo de comandos extra
 async function manejarComandosExtra(sock, msg, texto) {
   const from = msg.key.remoteJid;
 
-  // 🔥 Detectar remitente correctamente para privado o grupo
+  // 📌 Ignorar mensajes vacíos
+  if (!texto || !texto.trim()) return false;
+
   let rawID = '';
   if (msg.key.participant) {
-    // Grupo
     rawID = msg.key.participant.split('@')[0];
   } else if (msg.key.remoteJid.includes('@s.whatsapp.net')) {
-    // Chat privado
     rawID = msg.key.remoteJid.split('@')[0];
   } else {
-    rawID = '0000000000'; // Fallback
+    rawID = '0000000000';
   }
-
   const idUsuario = normalizarNumero(rawID);
 
   const comando = texto.toUpperCase();
   const dueño = esDueño(idUsuario);
   const admin = esAdmin(idUsuario);
 
-  console.log(`📩 Comando recibido: "${comando}" desde ${idUsuario}`);
-  console.log(`✅ ¿Es dueño?: ${dueño}`);
-  console.log(`✅ ¿Es admin?: ${admin}`);
+  console.log(`📩 Extra: "${comando}" desde ${idUsuario}`);
 
-  // 🟢 Procesar comando /anunciar
+  // 🟢 Comando /anunciar
   if (await procesarAnuncio(sock, msg, idUsuario)) return true;
 
-  // 🧾 Comando /TOKENS para ver saldo
+  // 💰 Comando /TOKENS (ver saldo)
   if (comando === '/TOKENS') {
     const saldo = obtenerTokens(idUsuario);
     await sock.sendMessage(from, {
@@ -127,60 +105,19 @@ async function manejarComandosExtra(sock, msg, texto) {
     return true;
   }
 
-  // 🧾 Comando /SUB (activar membresía)
-  if (comando.startsWith('/SUB')) {
-    if (!dueño && !admin) {
-      await sock.sendMessage(from, {
-        text: '⛔ No estás autorizado para usar este comando.'
-      });
-      return true;
-    }
-    const partes = texto.split(' ');
-    const destino = partes[1];
-    if (!destino || !/^[0-9]{9,20}$/.test(destino)) {
-      await sock.sendMessage(from, {
-        text: '⚠️ Número inválido para membresía. Ejemplo: /sub 5493813885182'
-      });
-      return true;
-    }
-    agregarMembresia(destino);
-    const tiempo = tiempoRestante(destino);
-    await sock.sendMessage(from, {
-      text: `✅ Membresía activada para ${destino}.\n📆 Vence en ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).`
-    });
-    return true;
-  }
-
-  // 🧾 Comando /ME para membresía
-  if (comando === '/ME') {
-    if (verificarMembresia(idUsuario) || admin || dueño) {
-      const tiempo = tiempoRestante(idUsuario);
-      await sock.sendMessage(from, {
-        text: `🕓 Tu membresía está activa. Vence en ${tiempo.dias} día(s) y ${tiempo.horas} hora(s).`
-      });
-    } else {
-      await sock.sendMessage(from, {
-        text: '🔒 No tenés membresía activa. Solo podrás hacer 1 búsqueda gratuita.'
-      });
-    }
-    return true;
-  }
-
-  // 🔗 Detectar links de redes sociales
+  // 🔗 Detección de links (Instagram, TikTok, YouTube)
   if (texto.startsWith('http') && (
-      texto.includes('instagram.com') ||
-      texto.includes('tiktok.com') ||
-      texto.includes('youtube.com'))) {
+    texto.includes('instagram.com') ||
+    texto.includes('tiktok.com') ||
+    texto.includes('youtube.com'))) {
 
     console.log('🔗 URL detectada para carga de seguidores');
 
-    // Detectar plataforma automáticamente
     let plataforma = '';
     if (texto.includes('instagram.com')) plataforma = 'instagram';
     else if (texto.includes('tiktok.com')) plataforma = 'tiktok';
     else if (texto.includes('youtube.com')) plataforma = 'youtube';
 
-    // Guardar pedido temporalmente
     pedidosSeguidores[idUsuario] = {
       url: texto,
       plataforma,
@@ -193,7 +130,7 @@ async function manejarComandosExtra(sock, msg, texto) {
     return true;
   }
 
-  // 🟢 Paso 2: Esperar cantidad
+  // 🟢 Paso 2: esperar cantidad
   if (pedidosSeguidores[idUsuario] && pedidosSeguidores[idUsuario].paso === 'esperandoCantidad') {
     const cantidad = parseInt(texto);
     if (isNaN(cantidad) || cantidad <= 0) {
@@ -219,7 +156,6 @@ async function manejarComandosExtra(sock, msg, texto) {
     pedido.tokens = tokensNecesarios;
     pedido.paso = 'esperandoConfirmacion';
 
-    // 📸 Enviar imagen de instrucciones
     const instructivoPath = path.join(__dirname, 'seguidores.jpg');
     try {
       const imagenBuffer = fs.readFileSync(instructivoPath);
@@ -227,9 +163,7 @@ async function manejarComandosExtra(sock, msg, texto) {
         image: imagenBuffer,
         caption: `📄 *Instrucciones para cargar seguidores*\n\n✅ Antes de confirmar:\n- 📱 Poné tu cuenta en *público*\n- ✅ Seguí los pasos de la imagen\n\n✏️ Escribe *"SI"* para confirmar o *"NO"* para cancelar.`
       });
-      console.log('✅ Imagen enviada junto al mensaje de confirmación.');
-    } catch (err) {
-      console.error('❌ Error al enviar la imagen de instrucciones:', err);
+    } catch {
       await sock.sendMessage(from, {
         text: '⚠️ No se pudo enviar la imagen. Escribe *"SI"* para confirmar o *"NO"* para cancelar.'
       });
@@ -295,46 +229,10 @@ async function manejarComandosExtra(sock, msg, texto) {
     }
   }
 
-  // 🟢 Detectar búsquedas CVU o Celular
-  const textoLimpio = texto.trim().replace(/[^0-9]/g, ''); // 🔥 normaliza texto
-  const esCVU = esCVUoCBU(textoLimpio);
-  const esCel = /^\d{9,15}$/.test(limpiarNumero(textoLimpio));
-
-  console.log('🧪 Analizando texto para búsqueda:', textoLimpio);
-  console.log('🔍 ¿Es CVU?:', esCVU);
-  console.log('📱 ¿Es Celular?:', esCel);
-
-  if (esCVU) {
-    const numeroCVU = limpiarCVU(textoLimpio);
-    if (!numeroCVU || numeroCVU.length !== 22) {
-      await sock.sendMessage(from, {
-        text: '⚠️ El número ingresado no es un CVU/CBU válido (22 dígitos).'
-      });
-      return true;
-    }
-    const client = await obtenerClienteTelegram();
-    await buscarCVUTelegram(numeroCVU, sock, from, idUsuario, client);
-    return true;
-  }
-
-  if (esCel) {
-    const celular = limpiarNumero(textoLimpio);
-    const client = await obtenerClienteTelegram();
-    await buscarCelularTelegram(celular, sock, from, idUsuario, client);
-    return true;
-  }
-
-  return false; // 👈 Si no es ningún caso, devuelve false
+  return false;
 }
 
-module.exports = { manejarComandosExtra };
-
-
-
-
-
-
-
+module.exports = { manejarComandosExtra, agregarTokens, obtenerTokens, descontarTokens };
 
 
 

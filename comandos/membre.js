@@ -79,7 +79,8 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino, administra
     const tieneDias = !isNaN(diasPersonalizado) && diasPersonalizado > 0 && diasPersonalizado <= 60;
 
     const nombre = partes.slice(posibleId.length > 11 ? 3 : 2, tieneDias ? -1 : undefined).join(' ');
-    const idExtendido = posibleId.length > 11 ? posibleId : null;
+    // 🔧 Corregido: normalizamos también el idExtendido
+    const idExtendido = posibleId.length > 11 ? normalizarNumero(posibleId) : null;
 
     const adminInfo = adminDetalle[adminNormalizado] || { nombre: 'Admin desconocido', id: '-' };
     const yaTiene = await verificarMembresia(numeroPrincipal);
@@ -311,6 +312,7 @@ module.exports = {
     manejarAdmins,
     adminList
 };
+
 
 
 

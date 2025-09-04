@@ -17,14 +17,17 @@ const { limpiarMembresiasVencidas } = require('./membresia');
 
 let socketGlobal = null;
 
-// 🔧 Función para limpiar IDs (quita @lid y @s.whatsapp.net)
+// 📌 Set para evitar procesar mensajes duplicados
+const mensajesProcesados = new Set();
+
+// 🔧 Función para limpiar IDs (quita @lid, @s.whatsapp.net, @g.us)
 function limpiarJid(jid) {
   if (!jid) return null;
   return jid
     .toString()
     .replace('@s.whatsapp.net', '')
     .replace('@lid', '')
-    .replace('@g.us', ''); // en grupos, se maneja aparte
+    .replace('@g.us', ''); // en grupos se maneja aparte
 }
 
 async function iniciarBot() {
@@ -81,10 +84,19 @@ async function iniciarBot() {
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       console.log('📩 Evento messages.upsert tipo:', type);
-      if (type !== 'notify') return;
+      if (type !== 'notify') return; // procesar solo notify
 
       for (const msg of messages) {
         if (!msg.message || msg.key.fromMe || !msg.key.remoteJid) continue;
+
+        // 📌 Evitar mensajes duplicados
+        const idMensaje = msg.key.id;
+        if (mensajesProcesados.has(idMensaje)) {
+          continue;
+        }
+        mensajesProcesados.add(idMensaje);
+        // Limpiar memoria después de 1 minuto
+        setTimeout(() => mensajesProcesados.delete(idMensaje), 60000);
 
         const from = msg.key.remoteJid;
         const isGroup = from.endsWith('@g.us');
@@ -105,7 +117,7 @@ async function iniciarBot() {
             await enviarBienvenida(sock, msg, remitenteLimpio);
           }
 
-          // Pasamos el msg tal cual, pero ya tenemos ids limpios en caso de necesitarlos
+          // Pasamos el msg al manejador principal
           await manejarMensaje(sock, msg, remitenteLimpio, chatLimpio, isGroup);
         } catch (err) {
           console.error('❌ Error procesando mensaje:', err);
@@ -154,6 +166,7 @@ server.on('error', err => {
 server.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
+
 
 
 
