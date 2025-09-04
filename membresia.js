@@ -27,7 +27,9 @@ function limpiarId(numeroOId) {
 
 // 📥 Cargar todas las membresías desde Mongo
 async function cargarMembresias() {
+  console.log('📥 Cargando todas las membresías desde MongoDB...');
   const lista = await Membresia.find({});
+  console.log(`📊 Se encontraron ${lista.length} membresías en la base.`);
   const resultado = {};
   for (const m of lista) {
     resultado[m.numero] = {
@@ -52,6 +54,8 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
   const n = normalizarNumero(numero);
   const idNorm = idGrupo ? normalizarNumero(idGrupo) : null;
 
+  console.log(`➕ Solicitado agregar/renovar membresía para: ${numero} → normalizado: ${n}`);
+
   const ahora = Date.now();
   const duracion = Math.min(diasDuracion, 60) * 24 * 60 * 60 * 1000;
 
@@ -69,6 +73,7 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
     });
     console.log(`🆕 Nueva membresía asignada a ${n} (${nombre}).`);
   } else {
+    console.log(`🔄 Renovando membresía existente para ${n} (${membresia.nombre}).`);
     membresia.inicio = ahora;
     membresia.vence = ahora + duracion;
     if (nombre) membresia.nombre = nombre;
@@ -83,21 +88,21 @@ async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracio
         membresia.ids.push(idNorm);
         console.log(`➕ ID extendido agregado: ${idNorm} para ${n}`);
       }
-    } else {
-      console.log(`🔄 Membresía renovada para ${n} (${nombre}).`);
     }
   }
 
   await membresia.save();
 
   const fechaVencimiento = new Date(membresia.vence).toLocaleString();
-  console.log(`📆 Válida hasta: ${fechaVencimiento}`);
+  console.log(`📆 Membresía de ${n} válida hasta: ${fechaVencimiento}`);
 }
 
 // ✅ Vincular un nuevo ID de grupo a una membresía
 async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   const n = normalizarNumero(numero);
   const idNorm = normalizarNumero(nuevoIdGrupo);
+  console.log(`🔗 Vinculando nuevo ID de grupo ${idNorm} al usuario ${n}`);
+
   const m = await Membresia.findOne({ numero: n });
 
   if (!m) {
@@ -122,12 +127,37 @@ async function actualizarIdGrupo(numero, nuevoIdGrupo) {
   await m.save();
 }
 
+// ✅ Vincular automáticamente un nuevo ID extendido (ej: @lid)
+async function vincularIdExtendido(numeroReal, nuevoId) {
+  const n = normalizarNumero(numeroReal);
+  const idNorm = normalizarNumero(nuevoId);
+
+  console.log(`🔗 Intentando vincular ID extendido ${idNorm} al número real ${n}`);
+
+  const m = await Membresia.findOne({ numero: n });
+  if (!m) {
+    console.warn(`⚠️ No existe membresía principal para ${n}.`);
+    return;
+  }
+
+  if (!Array.isArray(m.ids)) m.ids = [];
+  if (!m.ids.includes(idNorm)) {
+    m.ids.push(idNorm);
+    await m.save();
+    console.log(`✅ Vinculado nuevo ID extendido ${idNorm} a ${n}`);
+  } else {
+    console.log(`ℹ️ El ID extendido ${idNorm} ya estaba vinculado a ${n}`);
+  }
+}
+
 // ✅ Verificar membresía activa (por número normalizado o ID extendido)
 async function verificarMembresia(numeroOId) {
   if (!numeroOId) return false;
   const limpio = limpiarId(numeroOId);
   const n = normalizarNumero(limpio);
   const ahora = Date.now();
+
+  console.log(`🔎 Verificando membresía para ${numeroOId} → limpio: ${limpio} → normalizado: ${n}`);
 
   const m = await Membresia.findOne({
     $or: [
@@ -139,7 +169,7 @@ async function verificarMembresia(numeroOId) {
   });
 
   if (!m) {
-    console.warn(`⛔ Usuario ${numeroOId} → limpio: ${limpio} → normalizado: ${n} aparece SIN membresía activa.`);
+    console.warn(`⛔ Usuario ${numeroOId} (normalizado: ${n}) aparece SIN membresía activa.`);
   } else {
     console.log(`✅ Usuario ${n} tiene membresía activa (vence: ${new Date(m.vence).toLocaleString()}).`);
   }
@@ -154,6 +184,8 @@ async function tiempoRestante(numeroOId) {
   const n = normalizarNumero(limpio);
   const ahora = Date.now();
 
+  console.log(`⏳ Calculando tiempo restante para ${numeroOId} → limpio: ${limpio} → normalizado: ${n}`);
+
   const m = await Membresia.findOne({
     $or: [
       { numero: n },
@@ -164,7 +196,7 @@ async function tiempoRestante(numeroOId) {
   });
 
   if (!m) {
-    console.warn(`⏳ No se encontró tiempo restante para ${numeroOId} (limpio: ${limpio}, normalizado: ${n}).`);
+    console.warn(`⏳ No se encontró membresía activa para ${n}.`);
     return null;
   }
 
@@ -202,7 +234,10 @@ async function registrarBusquedaGratis(numero) {
 // ✅ Limpieza de membresías vencidas
 async function limpiarMembresiasVencidas(sock = null) {
   const ahora = Date.now();
+  console.log(`🧹 Iniciando limpieza de membresías vencidas...`);
   const vencidas = await Membresia.find({ vence: { $lte: ahora } });
+
+  console.log(`🗑️ Se encontraron ${vencidas.length} membresías vencidas.`);
 
   for (const m of vencidas) {
     if (sock) {
@@ -210,6 +245,7 @@ async function limpiarMembresiasVencidas(sock = null) {
         await sock.sendMessage(`${m.numero}@s.whatsapp.net`, {
           text: `🔒 *Tu membresía ha expirado.*\n\nSi querés seguir usando el sistema, contactá con un administrador para renovarla.\n\n📞 *Admin:* 3813885182`
         });
+        console.log(`📩 Notificación enviada a ${m.numero}.`);
       } catch (e) {
         console.warn(`⚠️ No se pudo notificar a ${m.numero}:`, e.message);
       }
@@ -222,6 +258,7 @@ async function limpiarMembresiasVencidas(sock = null) {
 module.exports = {
   agregarMembresia,
   actualizarIdGrupo,
+  vincularIdExtendido,
   verificarMembresia,
   tiempoRestante,
   yaUsoBusquedaGratis,

@@ -13,7 +13,7 @@ const conectarMongo = require('./mongo');
 const manejarMensaje = require('./comandos');
 const { registrarUsuario } = require('./anunciar');
 const { enviarBienvenida } = require('./bienvenida');
-const { limpiarMembresiasVencidas, verificarMembresia, tiempoRestante } = require('./membresia');
+const { limpiarMembresiasVencidas, verificarMembresia, tiempoRestante, vincularIdExtendido } = require('./membresia');
 
 let socketGlobal = null;
 
@@ -43,7 +43,7 @@ async function iniciarBot() {
     const sock = makeWASocket({
       auth: state,
       printQRInTerminal: false,
-      logger: P({ level: 'silent' }),
+      logger: P({ level: 'silent' }), // 🚫 No spamea logs de Baileys
       syncFullHistory: false,
       markOnlineOnConnect: true,
     });
@@ -67,7 +67,7 @@ async function iniciarBot() {
         console.log(`❌ Conexión cerrada. Código: ${code}`);
 
         if (code === DisconnectReason.loggedOut || code === 440) {
-          console.log('🔒 Sesión cerrada o desconectada. Eliminá la carpeta "session" y escaneá nuevamente.');
+          console.log('🔒 Sesión cerrada. Eliminá la carpeta "session" y escaneá nuevamente.');
           process.exit(0);
         } else {
           console.log('🔁 Reintentando conexión en 3s...');
@@ -88,21 +88,16 @@ async function iniciarBot() {
 
     // 📩 Manejo de mensajes
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      console.log('📩 Evento messages.upsert tipo:', type);
       if (type !== 'notify') return; // procesar solo notify
 
       for (const msg of messages) {
         if (!msg.message || msg.key.fromMe || !msg.key.remoteJid) {
-          console.warn('⚠️ Mensaje vacío o ignorado (posible Bad MAC).');
-          continue;
+          continue; // 🚫 No mostrar mensajes vacíos o duplicados
         }
 
         // 📌 Evitar mensajes duplicados
         const idMensaje = msg.key.id;
-        if (mensajesProcesados.has(idMensaje)) {
-          console.log(`⏩ Mensaje duplicado ignorado: ${idMensaje}`);
-          continue;
-        }
+        if (mensajesProcesados.has(idMensaje)) continue;
         mensajesProcesados.add(idMensaje);
         setTimeout(() => mensajesProcesados.delete(idMensaje), 60000);
 
@@ -110,40 +105,44 @@ async function iniciarBot() {
         const isGroup = from.endsWith('@g.us');
         const sender = isGroup ? msg.key.participant : msg.key.remoteJid;
 
-        console.log('🔍 Mensaje desde:', from);
-        console.log('👤 Remitente:', sender);
-
         if (!sender) continue;
 
-        // 🔧 Normalizar IDs antes de seguir
+        // 🔧 Normalizar IDs
         const remitenteLimpio = limpiarJid(sender);
         const chatLimpio = limpiarJid(from);
 
         try {
-          // 🛡️ Log especial de membresías
+          // 🛡️ Log y verificación de membresía
           const tieneMembresia = await verificarMembresia(remitenteLimpio);
           if (tieneMembresia) {
             const tiempo = await tiempoRestante(remitenteLimpio);
-            console.log(`✅ Usuario ${remitenteLimpio} tiene membresía activa. Restante: ${tiempo?.dias || 0}d ${tiempo?.horas || 0}h`);
+            console.log(`✅ Usuario ${remitenteLimpio} con membresía activa. Restante: ${tiempo?.dias || 0}d ${tiempo?.horas || 0}h`);
           } else {
             console.warn(`⛔ Usuario ${remitenteLimpio} aparece SIN membresía activa.`);
           }
 
+          // 🧩 Vincular automáticamente IDs raros (@lid)
+          if (sender.includes('@lid')) {
+            console.log(`🔗 Detectado @lid para ${remitenteLimpio}, intentando vincular con su número real...`);
+            await vincularIdExtendido(remitenteLimpio, sender);
+          }
+
+          // 🏠 Solo en chats privados
           if (!isGroup) {
             registrarUsuario(remitenteLimpio);
             await enviarBienvenida(sock, msg, remitenteLimpio);
           }
 
-          // Pasamos el msg al manejador principal
+          // 🚀 Pasar al manejador de comandos
           await manejarMensaje(sock, msg, remitenteLimpio, chatLimpio, isGroup);
         } catch (err) {
-          console.error('❌ Error procesando mensaje:', err);
+          console.error('❌ Error procesando mensaje:', err.message);
           try {
             await sock.sendMessage(from, {
               text: '⚠️ Error procesando tu mensaje. Intentá nuevamente.',
             });
           } catch (e) {
-            console.error('❌ No se pudo enviar mensaje de error:', e);
+            console.error('❌ No se pudo enviar mensaje de error:', e.message);
           }
         }
       }
@@ -158,7 +157,7 @@ async function iniciarBot() {
     }, 25 * 1000);
 
   } catch (error) {
-    console.error('❌ Error al iniciar el bot:', error);
+    console.error('❌ Error al iniciar el bot:', error.message);
     process.exit(1);
   }
 }
@@ -176,7 +175,7 @@ server.on('error', err => {
   if (err.code === 'EADDRINUSE') {
     console.warn(`⚠️ Puerto ${PORT} ya está en uso.`);
   } else {
-    console.error('❌ Error al iniciar servidor HTTP:', err);
+    console.error('❌ Error al iniciar servidor HTTP:', err.message);
   }
 });
 
