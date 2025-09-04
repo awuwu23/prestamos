@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Membresia, HistorialGratis } = require('./models');
 
+// 📂 Paths (solo referencia local)
 const membresiasPath = path.join(__dirname, 'membresias.json');
 const historialPath = path.join(__dirname, 'historial_gratis.json');
 
@@ -50,7 +51,13 @@ function guardarMembresias(_) {
 }
 
 // ✅ Crear o renovar membresía
-async function agregarMembresia(numero, idGrupo = null, nombre = '', diasDuracion = 30, vendedor = null) {
+async function agregarMembresia(
+  numero,
+  idGrupo = null,
+  nombre = '',
+  diasDuracion = 30,
+  vendedor = null
+) {
   const n = normalizarNumero(numero);
   const idNorm = idGrupo ? normalizarNumero(idGrupo) : null;
 
@@ -160,11 +167,7 @@ async function verificarMembresia(numeroOId) {
   console.log(`🔎 Verificando membresía para ${numeroOId} → limpio: ${limpio} → normalizado: ${n}`);
 
   const m = await Membresia.findOne({
-    $or: [
-      { numero: n },
-      { idGrupo: n },
-      { ids: n }
-    ],
+    $or: [{ numero: n }, { idGrupo: n }, { ids: n }],
     vence: { $gt: ahora }
   });
 
@@ -187,11 +190,7 @@ async function tiempoRestante(numeroOId) {
   console.log(`⏳ Calculando tiempo restante para ${numeroOId} → limpio: ${limpio} → normalizado: ${n}`);
 
   const m = await Membresia.findOne({
-    $or: [
-      { numero: n },
-      { idGrupo: n },
-      { ids: n }
-    ],
+    $or: [{ numero: n }, { idGrupo: n }, { ids: n }],
     vence: { $gt: ahora }
   });
 
@@ -223,11 +222,7 @@ async function yaUsoBusquedaGratis(numero) {
 
 async function registrarBusquedaGratis(numero) {
   const n = normalizarNumero(numero);
-  await HistorialGratis.updateOne(
-    { numero: n },
-    { $set: { usado: true } },
-    { upsert: true }
-  );
+  await HistorialGratis.updateOne({ numero: n }, { $set: { usado: true } }, { upsert: true });
   console.log(`🆓 Uso gratuito registrado para ${n}.`);
 }
 
