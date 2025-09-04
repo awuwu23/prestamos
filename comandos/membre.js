@@ -1,3 +1,5 @@
+// comandos/membre.js
+/* eslint-disable no-console */
 const fs = require('fs');
 const path = require('path');
 const {
@@ -5,170 +7,335 @@ const {
   actualizarIdGrupo,
   tiempoRestante,
   normalizarNumero,
-  verificarMembresia
+  verificarMembresia,
 } = require('../membresia');
 
-// 📂 Rutas de archivos locales
+/* ============================
+ *  Rutas de archivos locales
+ * ============================ */
 const adminFile = path.join(__dirname, '../admines.json');
 const adminDetalleFile = path.join(__dirname, '../admines_detalle.json');
 const ventasPath = path.join(__dirname, '../ventas_admin.json');
 
-// 👑 Listas de admins y dueños
-let adminList = ['5493813885182'];
-const dueños = ['5493813885182'];
-let adminDetalle = {};
+/* ============================
+ *  Config / Listas base
+ * ============================ */
+// 👑 Dueños del bot (pueden TODO)
+const dueños = ['5493813885182']; // ← agregá más si corresponde
+// 📞 Teléfono público del dueño para ventas (texto informativo al usuario)
+const CONTACTO_DUEÑO = '3813885182';
 
-// 📥 Cargar admins si existen archivos
-if (fs.existsSync(adminFile)) {
+// 👮 Lista de administradores (solo informativa; permisos finos en adminDetalle)
+let adminList = [...dueños]; // por defecto, los dueños también son admins
+let adminDetalle = {}; // { [numero]: { nombre, id, permSub, ... } }
+
+/* ============================
+ *  Carga persistencia local
+ * ============================ */
+(function bootLoad() {
   try {
-    adminList = JSON.parse(fs.readFileSync(adminFile));
+    if (fs.existsSync(adminFile)) {
+      adminList = JSON.parse(fs.readFileSync(adminFile));
+      console.log('🗂️ [membre] admines.json cargado:', adminList);
+    } else {
+      console.log('ℹ️ [membre] admines.json no existe, se usará default:', adminList);
+    }
   } catch (err) {
-    console.error('⚠️ Error al leer admines.json:', err);
+    console.error('⚠️ [membre] Error al leer admines.json:', err);
   }
-}
 
-if (fs.existsSync(adminDetalleFile)) {
   try {
-    adminDetalle = JSON.parse(fs.readFileSync(adminDetalleFile));
+    if (fs.existsSync(adminDetalleFile)) {
+      adminDetalle = JSON.parse(fs.readFileSync(adminDetalleFile));
+      console.log('🗂️ [membre] admines_detalle.json cargado (keys):', Object.keys(adminDetalle).length);
+    } else {
+      console.log('ℹ️ [membre] admines_detalle.json no existe, se arranca vacío.');
+    }
   } catch (err) {
-    console.error('⚠️ Error al leer admines_detalle.json:', err);
+    console.error('⚠️ [membre] Error al leer admines_detalle.json:', err);
   }
-}
 
-// 💾 Guardar admins
+  try {
+    if (!fs.existsSync(ventasPath)) {
+      fs.writeFileSync(ventasPath, '{}');
+      console.log('🆕 [membre] ventas_admin.json creado.');
+    }
+  } catch (err) {
+    console.error('⚠️ [membre] Error preparando ventas_admin.json:', err);
+  }
+})();
+
+/* ============================
+ *  Helpers de persistencia
+ * ============================ */
 function guardarAdmins() {
   try {
     fs.writeFileSync(adminFile, JSON.stringify(adminList, null, 2));
     fs.writeFileSync(adminDetalleFile, JSON.stringify(adminDetalle, null, 2));
+    console.log('💾 [membre] Admins y adminDetalle guardados.');
   } catch (err) {
-    console.error('❌ Error al guardar admines:', err);
+    console.error('❌ [membre] Error al guardar admines:', err);
   }
 }
 
-// 📥 Cargar ventas
 function cargarVentas() {
-  if (!fs.existsSync(ventasPath)) fs.writeFileSync(ventasPath, '{}');
   try {
-    return JSON.parse(fs.readFileSync(ventasPath));
-  } catch {
+    const data = JSON.parse(fs.readFileSync(ventasPath));
+    return data || {};
+  } catch (e) {
+    console.warn('⚠️ [membre] No pude leer ventas_admin.json, devuelvo {}:', e.message);
     return {};
   }
 }
 
-// 💾 Guardar ventas
 function guardarVentas(ventas) {
-  fs.writeFileSync(ventasPath, JSON.stringify(ventas, null, 2));
+  try {
+    fs.writeFileSync(ventasPath, JSON.stringify(ventas, null, 2));
+    console.log('💾 [membre] Ventas guardadas.');
+  } catch (e) {
+    console.error('❌ [membre] Error guardando ventas:', e);
+  }
 }
 
-// =============================
-// 📌 Manejo de /sub
-// =============================
-async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
-  const adminNormalizado = normalizarNumero(numeroAdmin);
+/* ============================
+ *  Helpers de permisos
+ * ============================ */
+function esDueño(numero) {
+  const n = normalizarNumero(numero);
+  return dueños.includes(n);
+}
 
-  if (!adminList.includes(adminNormalizado)) {
-    await sock.sendMessage(respuestaDestino, {
-      text: '⛔ *Acceso denegado*\n\n❌ No estás autorizado para usar este comando.'
-    });
-    return true;
+function esAdmin(numero) {
+  const n = normalizarNumero(numero);
+  return adminList.includes(n);
+}
+
+/**
+ * Determina si puede usar /sub:
+ *  - dueños SIEMPRE pueden
+ *  - admins solo si tienen permSub === true en adminDetalle
+ */
+function puedeUsarSub(numero) {
+  const n = normalizarNumero(numero);
+  if (esDueño(n)) return true;
+  if (!esAdmin(n)) return false;
+
+  const det = adminDetalle[n];
+  const habilitado = !!(det && det.permSub === true);
+  if (!habilitado) {
+    console.warn(`🚫 [membre] Admin ${n} intentó /sub sin permiso especial (permSub=false).`);
   }
+  return habilitado;
+}
 
-  const partes = texto.trim().split(/\s+/);
+/* ============================
+ *  Parsing flexible /sub
+ *  Soporta:
+ *    /sub <numero> <lid?> <nombre...> <dias?>
+ *  Ejemplos:
+ *    /sub 3816611789 47215263391931 JuanPerez 30
+ *    /sub 3816611789 Juan Perez 30
+ *    /sub 3816611789 4721526... Juan  (30 por default)
+ * ============================ */
+function parsearSub(raw) {
+  const partes = raw.trim().split(/\s+/);
+  // partes[0] = /sub
   if (partes.length < 3) {
-    await sock.sendMessage(respuestaDestino, {
-      text: `📖 *Uso del comando /sub:*\n━━━━━━━━━━━━━━━━━━━━━━━\n✅ /sub <número> <id?> <nombre> <días?>\n\n📌 Ejemplo:\n/sub 3812345678 47215263391931 Juan 30`
-    });
-    return true;
+    return null;
   }
 
   const numeroPrincipal = normalizarNumero(partes[1]);
   let idExtendido = null;
-  let nombre = '';
   let dias = 30;
+  let nombre = '';
 
-  // Caso: /sub numero lid nombre dias
-  if (/^\d{11,15}$/.test(partes[2])) {
-    idExtendido = normalizarNumero(partes[2]);
-    nombre = partes.slice(3, partes.length - 1).join(' ');
-    dias = parseInt(partes[partes.length - 1]) || 30;
-  } else {
-    // Caso: /sub numero nombre dias
-    nombre = partes.slice(2, partes.length - 1).join(' ');
-    dias = parseInt(partes[partes.length - 1]) || 30;
+  if (partes.length === 3) {
+    // /sub numero nombre
+    nombre = partes[2];
+  } else if (partes.length >= 4) {
+    const posibleIdONombre = partes[2];
+
+    // Heurística: si parece ID/LID/numero largo, lo tomamos como idExtendido
+    if (/^\d{11,20}$/.test(posibleIdONombre)) {
+      idExtendido = normalizarNumero(posibleIdONombre);
+      // el penúltimo podría ser nombre y el último días
+      const ultimo = partes[partes.length - 1];
+      const posibleDias = parseInt(ultimo, 10);
+      if (!isNaN(posibleDias)) {
+        dias = Math.max(1, Math.min(60, posibleDias));
+        nombre = partes.slice(3, partes.length - 1).join(' ').trim();
+      } else {
+        nombre = partes.slice(3).join(' ').trim();
+      }
+    } else {
+      // no hay id extendido, es nombre directo
+      const ultimo = partes[partes.length - 1];
+      const posibleDias = parseInt(ultimo, 10);
+      if (!isNaN(posibleDias)) {
+        dias = Math.max(1, Math.min(60, posibleDias));
+        nombre = partes.slice(2, partes.length - 1).join(' ').trim();
+      } else {
+        nombre = partes.slice(2).join(' ').trim();
+      }
+    }
   }
 
   if (!nombre) nombre = 'Usuario';
-  if (dias > 60) dias = 60;
+  if (!idExtendido) idExtendido = numeroPrincipal;
+  return { numeroPrincipal, idExtendido, nombre, dias };
+}
 
-  const adminInfo = adminDetalle[adminNormalizado] || {
-    nombre: 'Admin desconocido',
-    id: '-'
-  };
+/* ============================
+ *  /sub
+ * ============================ */
+async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
+  const adminN = normalizarNumero(numeroAdmin);
+  console.log(`📥 [/sub] Pedido por: ${adminN} | Texto: "${texto}"`);
 
-  const yaTiene = await verificarMembresia(numeroPrincipal);
+  if (!puedeUsarSub(adminN)) {
+    const detalle = adminDetalle[adminN];
+    const esAdminFlag = esAdmin(adminN);
+    console.warn(`⛔ [/sub] Denegado a ${adminN}. esDueño=${esDueño(adminN)} esAdmin=${esAdminFlag} permSub=${detalle?.permSub}`);
+    await sock.sendMessage(respuestaDestino, {
+      text: '⛔ *Acceso denegado*\n\nSolo *dueños* o *admins habilitados* (permSub) pueden usar este comando.',
+    });
+    return true;
+  }
 
-  await agregarMembresia(
-    numeroPrincipal,
-    idExtendido || numeroPrincipal,
-    nombre,
-    dias,
-    adminInfo.nombre
+  const parsed = parsearSub(texto);
+  if (!parsed) {
+    console.log('ℹ️ [/sub] Uso incorrecto.');
+    await sock.sendMessage(respuestaDestino, {
+      text:
+        '📖 *Uso del comando /sub:*\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '✅ /sub <número> <id?> <nombre> <días?>\n\n' +
+        '📌 Ejemplos:\n' +
+        '/sub 3816611789 47215263391931 JuanPerez 30\n' +
+        '/sub 3816611789 Juan Perez 30\n' +
+        '/sub 3816611789 47215263391931 Juan\n',
+    });
+    return true;
+  }
+
+  const { numeroPrincipal, idExtendido, nombre, dias } = parsed;
+  const adminInfo = adminDetalle[adminN] || { nombre: 'Admin', id: '-', permSub: true };
+
+  console.log(
+    `✅ [/sub] Alta/renovación → cliente=${numeroPrincipal} | idExt=${idExtendido} | nombre="${nombre}" | dias=${dias} | por=${adminN} (${adminInfo.nombre})`
   );
 
+  const yaTiene = await verificarMembresia(numeroPrincipal);
+  await agregarMembresia(numeroPrincipal, idExtendido, nombre, dias, adminInfo.nombre);
   const tiempo = await tiempoRestante(numeroPrincipal);
 
-  // 📩 Notificar al usuario
+  // Notificar al usuario final
   const jidUsuario = `${numeroPrincipal}@s.whatsapp.net`;
   try {
     await sock.sendMessage(jidUsuario, {
-      text: `🎉 *¡Tu membresía fue activada!*\n━━━━━━━━━━━━━━━━━━━━━━━\n🔓 Acceso *ilimitado* durante *${tiempo.dias} día(s)* y *${tiempo.horas} hora(s)*.\n👤 *Activada por:* ${adminInfo.nombre}\n📖 Comandos útiles:\n• /me → Ver tu membresía\n• /menu → Ver funciones del bot\n━━━━━━━━━━━━━━━━━━━━━━━\n📞 *Consultas:* 3813885182`
+      text:
+        `🎉 *¡Tu membresía fue activada!*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `👤 *Nombre:* ${nombre}\n` +
+        `📱 *Número:* ${numeroPrincipal}\n` +
+        `🆔 *ID vinculado:* ${idExtendido}\n` +
+        `⏳ *Duración:* ${dias} día(s) (restan ${tiempo?.dias ?? dias}d ${tiempo?.horas ?? 0}h)\n` +
+        `👑 *Activada por:* ${adminInfo.nombre}\n\n` +
+        `📖 Comandos útiles:\n` +
+        `• /me → ver tu estado\n` +
+        `• /id → ver tu ID / JID\n` +
+        `• /menu → funciones del bot\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📞 *Soporte / Renovaciones:* ${CONTACTO_DUEÑO}`,
     });
+    console.log(`📩 [/sub] Mensaje de alta enviado a usuario ${numeroPrincipal}`);
   } catch (e) {
-    console.warn(`⚠️ No se pudo enviar mensaje a ${numeroPrincipal}:`, e.message);
+    console.warn(`⚠️ [/sub] No se pudo notificar al usuario ${numeroPrincipal}:`, e.message);
   }
 
-  // 📩 Notificar al admin que lo ejecutó
+  // Resumen al admin que ejecutó
   await sock.sendMessage(respuestaDestino, {
-    text: `💳 *Datos para cobrar al cliente*\n━━━━━━━━━━━━━━━━━━━━━━━\n👤 Cliente: ${nombre}\n📱 Número: ${numeroPrincipal}\n🆔 ID extendido: ${idExtendido || '-'}\n⏳ Días: ${dias}\n💸 Monto sugerido: $15.000\n━━━━━━━━━━━━━━━━━━━━━━━\n👑 Vendedor: ${adminInfo.nombre}`
+    text:
+      `✅ *Membresía registrada*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👤 Cliente: ${nombre}\n` +
+      `📱 Número: ${numeroPrincipal}\n` +
+      `🆔 ID/LID: ${idExtendido}\n` +
+      `⏳ Días: ${dias}\n\n` +
+      `💳 *Datos de cobro (sugerido):*\n` +
+      `CBU: 0000003100049327493120\n` +
+      `Alias: leviatandox\n` +
+      `Titular: Carlos Ruben Collante\n` +
+      `Monto: $15.000\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `👑 Vendedor: ${adminInfo.nombre} (${adminN})`,
   });
 
-  // 📩 Notificar a los dueños
+  // Notificar a todos los dueños
   for (const dueño of dueños) {
-    await sock.sendMessage(`${dueño}@s.whatsapp.net`, {
-      text: `🔔 *Nueva membresía registrada*\n━━━━━━━━━━━━━━━━━━━━━━━\n👑 Admin: ${adminInfo.nombre}\n📞 Número: ${adminNormalizado}\n👤 Cliente: ${numeroPrincipal} - ${nombre}\n🆔 ID: ${idExtendido || '-'}\n⏳ Días: ${dias}`
-    });
+    try {
+      await sock.sendMessage(`${dueño}@s.whatsapp.net`, {
+        text:
+          `🔔 *Nueva membresía registrada*\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `👑 Admin: ${adminInfo.nombre} (${adminN})\n` +
+          `👤 Cliente: ${nombre}\n` +
+          `📱 Número: ${numeroPrincipal}\n` +
+          `🆔 ID/LID: ${idExtendido}\n` +
+          `⏳ Días: ${dias}`,
+      });
+    } catch (e) {
+      console.warn(`⚠️ [/sub] No se pudo notificar al dueño ${dueño}:`, e.message);
+    }
   }
 
-  // 📊 Guardar venta
+  // Contabilizar venta solo si no la tenía
   if (!yaTiene) {
     const ventas = cargarVentas();
-    ventas[adminNormalizado] = (ventas[adminNormalizado] || 0) + 1;
+    ventas[adminN] = (ventas[adminN] || 0) + 1;
     guardarVentas(ventas);
+    console.log(`📈 [/sub] Venta registrada para ${adminN}. Total: ${ventas[adminN]}`);
+  } else {
+    console.log('ℹ️ [/sub] El cliente ya tenía membresía activa; no suma venta.');
   }
 
   return true;
 }
 
-// =============================
-// 📌 Manejo de /id
-// =============================
+/* ============================
+ *  /id
+ * ============================ */
 async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
-  const id = normalizarNumero(numero);
+  const idNorm = normalizarNumero(numero);
+  const lidOjid = String(senderJid || '').replace('@s.whatsapp.net', '').replace('@lid', '').trim();
+
+  console.log(`📥 [/id] Pedido por ${idNorm} | senderJid=${senderJid}`);
+
   await sock.sendMessage(respuestaDestino, {
-    text: `🆔 *Tu ID es:* ${id}\n━━━━━━━━━━━━━━━━━━━━━━━\n📌 JID completo: ${senderJid}\n💡 Usá este ID o tu JID extendido para vincular membresía.`,
-    mentions: esGrupo ? [senderJid] : []
+    text:
+      `🆔 *Tu ID normalizado:* ${idNorm}\n` +
+      `🔗 *Tu LID/JID:* ${senderJid || '-'}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `💡 Con cualquiera de estos IDs podemos vincular tu membresía en /sub.`,
+    mentions: esGrupo && senderJid ? [senderJid] : [],
   });
   return true;
 }
 
-// =============================
-// 📌 Manejo de /adm
-// =============================
+/* ============================
+ *  /adm
+ *  Solo dueños pueden crear/editar admins
+ *  Si querés habilitar /sub a un admin: /adm <num> <id?> <nombre> sub:on
+ *  sub:on → permSub=true | sub:off → permSub=false
+ * ============================ */
 async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
-  const adminNormalizado = normalizarNumero(numeroAdmin);
-  if (!dueños.includes(adminNormalizado)) {
+  const adminN = normalizarNumero(numeroAdmin);
+  console.log(`📥 [/adm] Pedido de ${adminN} | "${texto}"`);
+
+  if (!esDueño(adminN)) {
+    console.warn(`⛔ [/adm] Denegado a ${adminN} (no es dueño).`);
     await sock.sendMessage(respuestaDestino, {
-      text: '⛔ *Acceso denegado*\n\n❌ Solo el *dueño del bot* puede agregar administradores.'
+      text: '⛔ *Acceso denegado*\n\nSolo el *dueño del bot* puede administrar administradores.',
     });
     return true;
   }
@@ -176,88 +343,145 @@ async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
   const partes = texto.trim().split(/\s+/);
   if (partes.length < 3) {
     await sock.sendMessage(respuestaDestino, {
-      text: `📖 *Uso del comando /adm:*\n━━━━━━━━━━━━━━━━━━━━━━━\n✅ /adm <número> <id?> <nombre>\n\n📌 Ejemplo:\n/adm 3812345678 47215263391931 Juan`
+      text:
+        '📖 *Uso del comando /adm:*\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '✅ /adm <número> <id?> <nombre...> [sub:on|sub:off]\n\n' +
+        '📌 Ejemplos:\n' +
+        '/adm 3812345678 47215263391931 Juan Perez sub:on\n' +
+        '/adm 3812345678 Juan Perez sub:off',
     });
     return true;
   }
 
   const nuevoAdmin = normalizarNumero(partes[1]);
+
+  // Detectar si hay ID extendido
   let idExtendido = null;
-  let nombre = 'Admin sin nombre';
-
-  if (/^\d{11,15}$/.test(partes[2])) {
+  let idxNombreStart = 2;
+  if (/^\d{11,20}$/.test(partes[2])) {
     idExtendido = normalizarNumero(partes[2]);
-    nombre = partes.slice(3).join(' ').trim();
-  } else {
-    nombre = partes.slice(2).join(' ').trim();
+    idxNombreStart = 3;
   }
 
-  if (!nombre) nombre = 'Admin sin nombre';
-
-  if (adminList.includes(nuevoAdmin)) {
-    const infoAnterior = adminDetalle[nuevoAdmin] || {};
-    adminDetalle[nuevoAdmin] = {
-      ...infoAnterior,
-      nombre,
-      id: idExtendido || infoAnterior.id || null
-    };
-  } else {
-    adminList.push(nuevoAdmin);
-    adminDetalle[nuevoAdmin] = { nombre, id: idExtendido || null };
+  // Detectar flag sub:on/off al final
+  let permSub = undefined; // undefined = no cambia
+  const ultima = partes[partes.length - 1].toLowerCase();
+  if (ultima === 'sub:on' || ultima === 'sub:off') {
+    permSub = ultima === 'sub:on';
   }
+
+  // Nombre:
+  const nombreTokens = partes.slice(idxNombreStart, permSub !== undefined ? partes.length - 1 : partes.length);
+  let nombre = nombreTokens.join(' ').trim() || 'Admin sin nombre';
+
+  const existe = adminList.includes(nuevoAdmin);
+  const anterior = adminDetalle[nuevoAdmin] || {};
+
+  adminDetalle[nuevoAdmin] = {
+    ...anterior,
+    nombre: nombre || anterior.nombre || 'Admin sin nombre',
+    id: idExtendido || anterior.id || null,
+    ...(permSub !== undefined ? { permSub } : {}),
+  };
+
+  if (!existe) adminList.push(nuevoAdmin);
   guardarAdmins();
 
+  console.log(
+    `✅ [/adm] Admin ${existe ? 'actualizado' : 'creado'}: ${nuevoAdmin} | nombre="${adminDetalle[nuevoAdmin].nombre}" | id=${adminDetalle[nuevoAdmin].id} | permSub=${adminDetalle[nuevoAdmin].permSub}`
+  );
+
   await sock.sendMessage(respuestaDestino, {
-    text: `✅ *Administrador agregado/actualizado*\n━━━━━━━━━━━━━━━━━━━━━━━\n📞 Número: ${nuevoAdmin}\n🆔 ID: ${idExtendido || '-'}\n👤 Nombre: ${nombre}`
+    text:
+      `✅ *Administrador ${existe ? 'actualizado' : 'agregado'}*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📞 Número: ${nuevoAdmin}\n` +
+      `🆔 ID: ${adminDetalle[nuevoAdmin].id || '-'}\n` +
+      `👤 Nombre: ${adminDetalle[nuevoAdmin].nombre}\n` +
+      `🔐 Puede usar /sub: ${adminDetalle[nuevoAdmin].permSub ? 'Sí' : 'No'}`,
   });
+
+  // Avisar al admin afectado (si es alta/edición y existe)
+  try {
+    await sock.sendMessage(`${nuevoAdmin}@s.whatsapp.net`, {
+      text:
+        `👑 *Sos administrador del bot*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `👤 Nombre: ${adminDetalle[nuevoAdmin].nombre}\n` +
+        `🆔 ID: ${adminDetalle[nuevoAdmin].id || '-'}\n` +
+        `🔐 /sub habilitado: ${adminDetalle[nuevoAdmin].permSub ? 'Sí' : 'No'}`,
+    });
+  } catch (e) {
+    console.warn(`⚠️ [/adm] No se pudo notificar al admin ${nuevoAdmin}:`, e.message);
+  }
 
   return true;
 }
 
-// =============================
-// 📌 Manejo de /me
-// =============================
+/* ============================
+ *  /me
+ * ============================ */
 async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
-  const id = normalizarNumero(numero);
-  const esAdmin = adminList.includes(id);
-  const esDueño = dueños.includes(id);
+  const idNorm = normalizarNumero(numero);
+  const infoAdmin = adminDetalle[idNorm];
+  const soyDueño = esDueño(idNorm);
+  const soyAdmin = esAdmin(idNorm);
 
-  let info = adminDetalle[id];
-  if (!info) {
-    for (const adminNum in adminDetalle) {
-      if (adminDetalle[adminNum].id === id) {
-        info = adminDetalle[adminNum];
+  // Intento de obtener info por ID extendido guardado
+  let infoPorId = null;
+  if (!infoAdmin) {
+    for (const key in adminDetalle) {
+      if ((adminDetalle[key]?.id || '') === idNorm) {
+        infoPorId = adminDetalle[key];
         break;
       }
     }
   }
 
-  let texto = `📊 *Información de usuario*\n━━━━━━━━━━━━━━━━━━━━━━━\n🔑 JID: ${senderJid}\n📱 Normalizado: ${id}\n`;
+  console.log(`📥 [/me] Pedido por ${idNorm} | esDueño=${soyDueño} esAdmin=${soyAdmin} senderJid=${senderJid}`);
 
-  if (esDueño) {
-    texto += '\n👑 *Sos dueño del bot.*\n✅ Acceso ilimitado.';
-  } else if (esAdmin || info) {
-    texto += `\n👑 *Sos administrador del bot*\n👤 Nombre: ${info?.nombre || 'N/A'}\n🆔 ID: ${info?.id || '-'}\n✅ Acceso completo.`;
+  let texto =
+    `📊 *Tu información*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🆔 ID normalizado: ${idNorm}\n` +
+    `🔗 LID/JID: ${senderJid || '-'}\n`;
+
+  if (soyDueño) {
+    texto += `\n👑 *Sos DUEÑO del bot.*\n✅ Acceso total.`;
+  } else if (soyAdmin || infoPorId) {
+    const i = infoAdmin || infoPorId || {};
+    texto +=
+      `\n👑 *Sos ADMINISTRADOR*\n` +
+      `👤 Nombre: ${i.nombre || 'N/A'}\n` +
+      `🆔 ID admin: ${i.id || '-'}\n` +
+      `🔐 /sub habilitado: ${i.permSub ? 'Sí' : 'No'}`;
   } else {
-    const activo = await verificarMembresia(id);
-    const tiempo = await tiempoRestante(id);
+    const activo = await verificarMembresia(idNorm);
     if (activo) {
-      texto += `\n📆 *Membresía activa*\n⏳ Restante: ${tiempo.dias} día(s), ${tiempo.horas} hora(s).`;
+      const t = await tiempoRestante(idNorm);
+      texto +=
+        `\n📆 *Membresía activa*\n` +
+        `⏳ Restante: ${t?.dias ?? '-'} día(s), ${t?.horas ?? '-'} hora(s).`;
     } else {
-      texto += `\n🔒 *No tenés membresía activa.*\n💡 Usá tu búsqueda gratuita o contactá a un admin.`;
+      texto +=
+        `\n🔒 *No tenés membresía activa.*\n` +
+        `🆓 Tenés 1 búsqueda gratis.\n` +
+        `📞 Si querés activar una membresía, hablá con el dueño: *${CONTACTO_DUEÑO}*`;
     }
   }
 
-  await sock.sendMessage(respuestaDestino, { text: texto, mentions: esGrupo ? [senderJid] : [] });
+  await sock.sendMessage(respuestaDestino, { text: texto, mentions: esGrupo && senderJid ? [senderJid] : [] });
   return true;
 }
 
-// =============================
-// 📌 Manejo de /admins
-// =============================
+/* ============================
+ *  /admins (ranking de ventas)
+ * ============================ */
 async function manejarAdmins(sock, respuestaDestino) {
-  const ventas = cargarVentas();
+  console.log('📥 [/admins] Pedido de ranking de ventas');
 
+  const ventas = cargarVentas();
   const ranking = Object.entries(ventas)
     .map(([numero, cantidad]) => {
       const detalle = adminDetalle[numero] || {};
@@ -266,34 +490,44 @@ async function manejarAdmins(sock, respuestaDestino) {
         numero,
         id: detalle.id || '-',
         ventas: cantidad,
-        monto: cantidad * 15000
+        monto: cantidad * 15000,
       };
     })
     .sort((a, b) => b.ventas - a.ventas);
 
   if (ranking.length === 0) {
     await sock.sendMessage(respuestaDestino, {
-      text: '📊 *No hay ventas registradas por ningún administrador.*'
+      text: '📊 *No hay ventas registradas por ningún administrador.*',
     });
     return;
   }
 
-  let texto = '📊 *Ranking de administradores*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
-  ranking.forEach((admin, i) => {
-    texto += `*${i + 1}️⃣ ${admin.nombre}*\n📞 Número: ${admin.numero}\n🆔 ID: ${admin.id}\n🛒 Ventas: ${admin.ventas}\n💸 Total: $${admin.monto.toLocaleString()}\n━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  let texto = '📊 *Ranking de administradores por ventas*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
+  ranking.forEach((a, i) => {
+    texto +=
+      `*${i + 1}️⃣ ${a.nombre}*\n` +
+      `📞 Número: ${a.numero}\n` +
+      `🆔 ID: ${a.id}\n` +
+      `🛒 Ventas: ${a.ventas}\n` +
+      `💸 Total: $${a.monto.toLocaleString()}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━\n`;
   });
 
   await sock.sendMessage(respuestaDestino, { text: texto.trim() });
 }
 
+/* ============================
+ *  Exports
+ * ============================ */
 module.exports = {
   manejarSub,
   manejarMe,
   manejarId,
   manejarAdm,
   manejarAdmins,
-  adminList
+  adminList, // usado por otros módulos si lo necesitan
 };
+
 
 
 
