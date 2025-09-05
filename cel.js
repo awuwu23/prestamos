@@ -1,13 +1,20 @@
 const { iniciarClienteTelegram, botUsername } = require('./telegramClientNuevo');
 const { NewMessage } = require('telegram/events');
-const { adminList } = require('./comandos/membre');
+
+// ✅ Importamos helpers en lugar de adminList
+const { esAdmin } = require('./comandos/membre');
 const {
   verificarMembresia,
   yaUsoBusquedaGratis,
   registrarBusquedaGratis
 } = require('./membresia');
+
 const fs = require('fs');
 const path = require('path');
+
+/* ============================
+ * Utils
+ * ============================ */
 
 // 🟢 Normaliza cualquier número a formato argentino internacional
 function limpiarNumero(input) {
@@ -29,14 +36,19 @@ function esNumeroCelularValido(numero) {
   return /^\d{9,15}$/.test(limpio);
 }
 
+/* ============================
+ * Lógica principal
+ * ============================ */
 async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDestino, enProceso) {
   const numeroNormalizado = limpiarNumero(comando);
   const celularParaTelegram = obtenerDiezDigitos(numeroNormalizado);
   const remitenteNormalizado = limpiarNumero(numeroRemitente);
-  const esAdmin = adminList.includes(remitenteNormalizado);
-  const tieneMembresia = verificarMembresia(remitenteNormalizado);
 
-  if (!esAdmin && !tieneMembresia) {
+  // ✅ Usamos helpers en vez de adminList
+  const esAdminUser = await esAdmin(remitenteNormalizado);
+  const tieneMembresia = await verificarMembresia(remitenteNormalizado);
+
+  if (!esAdminUser && !tieneMembresia) {
     if (yaUsoBusquedaGratis(remitenteNormalizado)) {
       await sock.sendMessage(respuestaDestino, {
         text: '🔒 Ya usaste tu búsqueda gratuita. Contactá al *3813885182* para activar tu membresía.'
@@ -45,7 +57,7 @@ async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDest
     }
     registrarBusquedaGratis(remitenteNormalizado);
     console.log(`🆓 Búsqueda gratuita habilitada para ${remitenteNormalizado}`);
-  } else if (esAdmin) {
+  } else if (esAdminUser) {
     console.log('👑 Usuario administrador, búsqueda sin restricciones.');
   }
 
@@ -59,7 +71,6 @@ async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDest
   }
 
   try {
-    // 🚫 Quitamos el mensaje duplicado aquí
     console.log(`📲 Enviando /cel ${celularParaTelegram} al bot de Telegram`);
     const bot = await client.getEntity(botUsername);
     await client.sendMessage(bot, { message: `/cel ${celularParaTelegram}` });
@@ -127,6 +138,9 @@ async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDest
   }
 }
 
+/* ============================
+ * Procesar respuestas
+ * ============================ */
 async function procesarRespuestas(sock, to, textos, imagen) {
   const respuesta = textos.join('\n\n').trim();
   console.log('📤 Enviando resultado final a WhatsApp...');
@@ -147,6 +161,9 @@ async function procesarRespuestas(sock, to, textos, imagen) {
   }
 }
 
+/* ============================
+ * Exports
+ * ============================ */
 module.exports = {
   limpiarNumero,
   esNumeroCelularValido,

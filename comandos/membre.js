@@ -1,19 +1,15 @@
 /* eslint-disable no-console */
-const {
-  agregarMembresia,
-  tiempoRestante,
-  normalizarNumero,
-  verificarMembresia,
-} = require('../membresia');
-const Admin = require('../models/Admin');
+const { Admin } = require('../models/Admin');
+const { Membresia } = require('../models');
+const { normalizarNumero, agregarMembresia, tiempoRestante, verificarMembresia } = require('../membresia');
 
 /* ============================
- * Config base
+ * Configuración base
  * ============================ */
-// 👑 Dueños hardcodeados (se insertan en Mongo si no existen)
-const DUEÑOS = ['5493813885182'];
-// 📞 Teléfono público del dueño
-const CONTACTO_DUEÑO = '3813885182';
+const DUEÑOS = [
+  (process.env.OWNER_NUMBER || '5493813885182').replace(/\D/g, '')
+];
+const CONTACTO_DUEÑO = process.env.OWNER_CONTACT || '3813885182';
 
 /* ============================
  * Boot inicial: asegurar dueños
@@ -21,16 +17,20 @@ const CONTACTO_DUEÑO = '3813885182';
 (async () => {
   try {
     for (const numero of DUEÑOS) {
-      const existe = await Admin.findOne({ numero });
-      if (!existe) {
-        await Admin.create({
-          numero,
-          nombre: 'Dueño',
-          esDueño: true,
-          permSub: true,
-        });
-        console.log(`👑 [membre] Dueño insertado en Mongo: ${numero}`);
-      }
+      await Admin.updateOne(
+        { numero },
+        {
+          $set: {
+            numero,
+            nombre: 'Dueño',
+            isOwner: true,
+            esDueño: true,
+            permSub: true,  // Se asegura que los dueños tengan acceso ilimitado
+          },
+        },
+        { upsert: true }
+      );
+      console.log(`👑 [membre] Dueño asegurado en Mongo: ${numero}`);
     }
   } catch (e) {
     console.error('❌ [membre] Error inicializando dueños en Mongo:', e);
@@ -38,24 +38,48 @@ const CONTACTO_DUEÑO = '3813885182';
 })();
 
 /* ============================
+ * Helpers comunes
+ * ============================ */
+function pareceTelefono(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  return d.length >= 10 && d.length <= 15;
+}
+
+function pareceIdExtendido(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  return d.length >= 11 && d.length <= 20;
+}
+
+function normalizarTelefono(raw) {
+  return normalizarNumero(String(raw || '').replace(/\D/g, ''));
+}
+
+function normalizarId(raw) {
+  return String(raw || '').replace(/\D/g, '');
+}
+
+/* ============================
  * Helpers de permisos
  * ============================ */
 async function esDueño(numero) {
   const n = normalizarNumero(numero);
   const admin = await Admin.findOne({ numero: n });
-  return admin?.esDueño || false;
+  console.log(`🔍 Verificando si ${n} es dueño`);
+  return !!(admin && (admin.isOwner || admin.esDueño));
 }
 
 async function esAdmin(numero) {
   const n = normalizarNumero(numero);
   const admin = await Admin.findOne({ numero: n });
+  console.log(`🔍 Verificando si ${n} es admin`);
   return !!admin;
 }
 
 async function puedeUsarSub(numero) {
   const n = normalizarNumero(numero);
   const admin = await Admin.findOne({ numero: n });
-  return admin?.esDueño || admin?.permSub || false;
+  console.log(`🔍 Verificando si ${n} puede usar el comando /sub`);
+  return !!(admin && ((admin.isOwner || admin.esDueño) || admin.permSub));
 }
 
 /* ============================
@@ -63,42 +87,123 @@ async function puedeUsarSub(numero) {
  * ============================ */
 function parsearSub(raw) {
   const partes = raw.trim().split(/\s+/);
-  if (partes.length < 3) return null;
+  if (partes.length < 2) return null;
+  const tokens = partes.slice(1);
 
-  const numeroPrincipal = normalizarNumero(partes[1]);
-  let idExtendido = null;
   let dias = 30;
-  let nombre = '';
-
-  if (partes.length === 3) {
-    nombre = partes[2];
-  } else if (partes.length >= 4) {
-    const posibleIdONombre = partes[2];
-    if (/^\d{11,20}$/.test(posibleIdONombre)) {
-      idExtendido = normalizarNumero(posibleIdONombre);
-      const ultimo = partes[partes.length - 1];
-      const posibleDias = parseInt(ultimo, 10);
-      if (!isNaN(posibleDias)) {
-        dias = Math.max(1, Math.min(60, posibleDias));
-        nombre = partes.slice(3, partes.length - 1).join(' ').trim();
-      } else {
-        nombre = partes.slice(3).join(' ').trim();
-      }
-    } else {
-      const ultimo = partes[partes.length - 1];
-      const posibleDias = parseInt(ultimo, 10);
-      if (!isNaN(posibleDias)) {
-        dias = Math.max(1, Math.min(60, posibleDias));
-        nombre = partes.slice(2, partes.length - 1).join(' ').trim();
-      } else {
-        nombre = partes.slice(2).join(' ').trim();
-      }
+  const ultimo = tokens[tokens.length - 1];
+  if (/^\d+$/.test(ultimo)) {
+    const posibleDias = parseInt(ultimo, 10);
+    if (posibleDias >= 1 && posibleDias <= 60) {
+      dias = posibleDias;
+      tokens.pop();
     }
   }
 
-  if (!nombre) nombre = 'Usuario';
+  const numericTokens = [];
+  const otherTokens = [];
+  for (const t of tokens) {
+    if (/^\d+$/.test(t)) numericTokens.push(t);
+    else otherTokens.push(t);
+  }
+
+  let numeroPrincipal = null;
+  let idExtendido = null;
+
+  if (numericTokens.length >= 2) {
+    const a = numericTokens[0];
+    const b = numericTokens[1];
+    const aIsPhone = pareceTelefono(a);
+    const bIsPhone = pareceTelefono(b);
+
+    if (aIsPhone && !bIsPhone) {
+      numeroPrincipal = normalizarTelefono(a);
+      idExtendido = normalizarId(b);
+    } else if (!aIsPhone && bIsPhone) {
+      idExtendido = normalizarId(a);
+      numeroPrincipal = normalizarTelefono(b);
+    } else {
+      if (a.length >= b.length) {
+        idExtendido = normalizarId(a);
+        numeroPrincipal = normalizarTelefono(b);
+      } else {
+        idExtendido = normalizarId(b);
+        numeroPrincipal = normalizarTelefono(a);
+      }
+    }
+  } else if (numericTokens.length === 1) {
+    const t = numericTokens[0];
+    if (pareceTelefono(t)) numeroPrincipal = normalizarTelefono(t);
+    else idExtendido = normalizarId(t);
+  }
+
+  const nombre = (otherTokens.join(' ').trim()) || 'Usuario';
+  if (!numeroPrincipal && !idExtendido) return null;
+
+  if (!numeroPrincipal && idExtendido) {
+    numeroPrincipal = normalizarTelefono(idExtendido);
+  }
   if (!idExtendido) idExtendido = numeroPrincipal;
+
   return { numeroPrincipal, idExtendido, nombre, dias };
+}
+
+/* ============================
+ * Parsing flexible /adm
+ * ============================ */
+function parsearAdm(raw) {
+  const partes = raw.trim().split(/\s+/);
+  if (partes.length < 2) return null;
+
+  const tokens = partes.slice(1);
+  let permSub;
+  const last = tokens[tokens.length - 1];
+  if (last && /^sub:(on|off)$/i.test(last)) {
+    permSub = last.toLowerCase() === 'sub:on';
+    tokens.pop();
+  }
+
+  const numericTokens = [];
+  const otherTokens = [];
+  for (const t of tokens) {
+    if (/^\d+$/.test(t)) numericTokens.push(t);
+    else otherTokens.push(t);
+  }
+
+  let numero = null;
+  let idExtendido = null;
+
+  if (numericTokens.length >= 2) {
+    const a = numericTokens[0];
+    const b = numericTokens[1];
+    const aIsPhone = pareceTelefono(a);
+    const bIsPhone = pareceTelefono(b);
+
+    if (aIsPhone && !bIsPhone) {
+      numero = normalizarTelefono(a);
+      idExtendido = normalizarId(b);
+    } else if (!aIsPhone && bIsPhone) {
+      idExtendido = normalizarId(a);
+      numero = normalizarTelefono(b);
+    } else {
+      if (a.length >= b.length) {
+        idExtendido = normalizarId(a);
+        numero = normalizarTelefono(b);
+      } else {
+        idExtendido = normalizarId(b);
+        numero = normalizarTelefono(a);
+      }
+    }
+  } else if (numericTokens.length === 1) {
+    const t = numericTokens[0];
+    if (pareceTelefono(t)) numero = normalizarTelefono(t);
+    else idExtendido = normalizarId(t);
+  }
+
+  const nombre = (otherTokens.join(' ').trim()) || 'Admin sin nombre';
+  if (!numero && !idExtendido) return null;
+
+  return { numero, idExtendido, nombre, permSub };
 }
 
 /* ============================
@@ -108,6 +213,7 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
   const adminN = normalizarNumero(numeroAdmin);
   const admin = await Admin.findOne({ numero: adminN });
 
+  console.log(`⚡ Verificando permisos de sub para ${adminN}`);
   if (!(await puedeUsarSub(adminN))) {
     await sock.sendMessage(respuestaDestino, {
       text: '⛔ *Acceso denegado*\n\nSolo *dueños* o *admins habilitados* (permSub) pueden usar este comando.',
@@ -115,21 +221,21 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
     return true;
   }
 
+  console.log(`✔ Permiso de sub otorgado para ${adminN}`);
   const parsed = parsearSub(texto);
   if (!parsed) {
     await sock.sendMessage(respuestaDestino, {
       text:
-        '📖 *Uso del comando /sub:*\n━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '✅ /sub <número> <id?> <nombre> <días?>\n\n' +
-        '📌 Ejemplos:\n' +
-        '/sub 3816611789 47215263391931 JuanPerez 30\n' +
-        '/sub 3816611789 Juan Perez 30\n' +
-        '/sub 3816611789 47215263391931 Juan',
+        '📖 *Uso del comando /sub:*\n' +
+        '• /sub <id> <numero> <nombre...> <días?>\n' +
+        '• /sub <numero> <nombre...> <días?>\n' +
+        '• /sub <id> <nombre...> <días?>\n',
     });
     return true;
   }
 
   const { numeroPrincipal, idExtendido, nombre, dias } = parsed;
+  console.log(`⚡ Activando membresía para ${numeroPrincipal} (${nombre})`);
   const yaTiene = await verificarMembresia(numeroPrincipal);
 
   await agregarMembresia(
@@ -141,45 +247,34 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
   );
   const tiempo = await tiempoRestante(numeroPrincipal);
 
-  // ✅ Notificar usuario
   const jidUsuario = `${numeroPrincipal}@s.whatsapp.net`;
   try {
     await sock.sendMessage(jidUsuario, {
       text:
-        `🎉 *¡Tu membresía fue activada!*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `👤 Nombre: ${nombre}\n📱 Número: ${numeroPrincipal}\n🆔 ID: ${idExtendido}\n` +
-        `⏳ Duración: ${dias} día(s) (restan ${tiempo?.dias ?? dias}d ${tiempo?.horas ?? 0}h)\n` +
+        `🎉 *¡Tu membresía fue activada!*\n` +
+        `👤 ${nombre}\n📱 ${numeroPrincipal}\n🆔 ${idExtendido}\n` +
+        `⏳ ${dias} día(s) (restan ${tiempo?.dias ?? dias}d ${tiempo?.horas ?? 0}h)\n` +
         `👑 Activada por: ${admin?.nombre || 'Admin'}\n\n` +
-        `📞 *Soporte / Renovaciones:* ${CONTACTO_DUEÑO}`,
+        `📞 Soporte: ${CONTACTO_DUEÑO}`,
     });
-  } catch (e) {
-    console.warn(
-      `⚠️ [/sub] No se pudo notificar al usuario ${numeroPrincipal}:`,
-      e.message
-    );
-  }
+  } catch {}
 
-  // ✅ Resumen al admin que hizo la venta
   await sock.sendMessage(respuestaDestino, {
     text:
-      `✅ *Membresía registrada*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `👤 Cliente: ${nombre}\n📱 Número: ${numeroPrincipal}\n🆔 ID/LID: ${idExtendido}\n⏳ Días: ${dias}\n` +
+      `✅ *Membresía registrada*\n` +
+      `👤 ${nombre}\n📱 ${numeroPrincipal}\n🆔 ${idExtendido}\n⏳ ${dias}\n` +
       `👑 Vendedor: ${admin?.nombre || 'Admin'} (${adminN})`,
   });
 
-  // ✅ Notificar al dueño del bot sobre la venta
   for (const d of DUEÑOS) {
-    const jidDueño = `${d}@s.whatsapp.net`;
-    await sock.sendMessage(jidDueño, {
+    await sock.sendMessage(`${d}@s.whatsapp.net`, {
       text:
-        `💸 *Nueva venta registrada!*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `👤 Cliente: ${nombre}\n📱 Número: ${numeroPrincipal}\n🆔 ID/LID: ${idExtendido}\n` +
-        `⏳ Duración: ${dias} días\n` +
-        `👑 Vendedor: ${admin?.nombre || 'Admin'} (${adminN})`,
+        `💸 *Nueva venta registrada!*\n` +
+        `👤 ${nombre}\n📱 ${numeroPrincipal}\n🆔 ${idExtendido}\n` +
+        `⏳ ${dias} días\n👑 Vendedor: ${admin?.nombre || 'Admin'} (${adminN})`,
     });
   }
 
-  // Contabilizar venta
   if (!yaTiene) {
     await Admin.updateOne({ numero: adminN }, { $inc: { ventas: 1 } });
   }
@@ -191,10 +286,10 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
  * ============================ */
 async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
   const idNorm = normalizarNumero(numero);
+  console.log(`⚡ Procesando ID para ${idNorm}`);
   await sock.sendMessage(respuestaDestino, {
     text:
-      `🆔 *Tu ID normalizado:* ${idNorm}\n🔗 *Tu LID/JID:* ${senderJid || '-'}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━\n💡 Con cualquiera de estos IDs podemos vincular tu membresía en /sub.`,
+      `🆔 ID normalizado: ${idNorm}\n🔗 LID/JID: ${senderJid || '-'}`,
     mentions: esGrupo && senderJid ? [senderJid] : [],
   });
   return true;
@@ -205,62 +300,51 @@ async function manejarId(sock, numero, respuestaDestino, senderJid, esGrupo) {
  * ============================ */
 async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
   const adminN = normalizarNumero(numeroAdmin);
+  console.log(`⚡ Procesando /adm para ${adminN}`);
 
   if (!(await esDueño(adminN))) {
+    console.log(`❌ Acceso denegado, solo el dueño puede administrar.`);
     await sock.sendMessage(respuestaDestino, {
       text: '⛔ *Acceso denegado*\n\nSolo el *dueño del bot* puede administrar administradores.',
     });
     return true;
   }
 
-  const partes = texto.trim().split(/\s+/);
-  if (partes.length < 3) {
+  const parsed = parsearAdm(texto);
+  if (!parsed) {
+    console.log(`❌ Error en el comando /adm.`);
     await sock.sendMessage(respuestaDestino, {
-      text:
-        '📖 *Uso del comando /adm:*\n━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '✅ /adm <número> <id?> <nombre...> [sub:on|sub:off]',
+      text: '📖 Uso: /adm <id> <numero> <nombre...> sub:on|sub:off',
     });
     return true;
   }
 
-  const nuevoAdmin = normalizarNumero(partes[1]);
-  let idExtendido = null;
-  let idxNombreStart = 2;
+  const { numero, idExtendido, nombre, permSub } = parsed;
 
-  if (/^\d{11,20}$/.test(partes[2])) {
-    idExtendido = normalizarNumero(partes[2]);
-    idxNombreStart = 3;
+  const filtro = numero ? { numero } : { id: idExtendido };
+  const existente = await Admin.findOne(filtro);
+
+  const setFields = { nombre };
+  if (typeof permSub === 'boolean') setFields.permSub = permSub;
+  if (idExtendido) setFields.id = idExtendido;
+  if (numero) setFields.numero = numero;
+
+  if (existente) {
+    await Admin.updateOne({ _id: existente._id }, { $set: setFields });
+  } else {
+    await Admin.updateOne(filtro, { $set: setFields }, { upsert: true });
   }
 
-  let permSub;
-  const ultima = partes[partes.length - 1].toLowerCase();
-  if (ultima === 'sub:on' || ultima === 'sub:off') {
-    permSub = ultima === 'sub:on';
-  }
+  const adminFinal = await Admin.findOne(filtro);
 
-  const nombreTokens = partes.slice(
-    idxNombreStart,
-    permSub !== undefined ? partes.length - 1 : partes.length
-  );
-  const nombre = nombreTokens.join(' ').trim() || 'Admin sin nombre';
-
-  await Admin.updateOne(
-    { numero: nuevoAdmin },
-    {
-      $set: {
-        nombre,
-        id: idExtendido,
-        ...(permSub !== undefined ? { permSub } : {}),
-      },
-    },
-    { upsert: true }
-  );
-
+  console.log(`✔ Admin actualizado/agregado: ${adminFinal?.nombre}`);
   await sock.sendMessage(respuestaDestino, {
     text:
-      `✅ *Administrador agregado/actualizado*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `📞 Número: ${nuevoAdmin}\n🆔 ID: ${idExtendido || '-'}\n👤 Nombre: ${nombre}\n` +
-      `🔐 Puede usar /sub: ${permSub ? 'Sí' : 'No'}`,
+      `✅ *Administrador agregado/actualizado*\n` +
+      `👤 ${adminFinal?.nombre || nombre}\n` +
+      `📞 ${adminFinal?.numero || numero || '-'}\n` +
+      `🆔 ${adminFinal?.id || idExtendido || '-'}\n` +
+      `🔐 /sub: ${(typeof permSub === 'boolean' ? permSub : adminFinal?.permSub) ? 'Sí' : 'No'}`,
   });
   return true;
 }
@@ -273,27 +357,29 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
   const admin = await Admin.findOne({ numero: idNorm });
 
   let texto =
-    `📊 *Tu información*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🆔 ID normalizado: ${idNorm}\n🔗 LID/JID: ${senderJid || '-'}`;
+    `📊 *Tu información*\n` +
+    `🆔 ${idNorm}\n🔗 ${senderJid || '-'}`;
 
-  if (admin?.esDueño) {
-    texto += `\n\n👑 *Sos DUEÑO del bot.*\n✅ Acceso total.`;
+  if (admin && (admin.isOwner || admin.esDueño)) {
+    texto += `\n\n👑 Sos DUEÑO del bot.`;
   } else if (admin) {
     texto +=
-      `\n\n👑 *Sos ADMINISTRADOR*\n👤 Nombre: ${admin.nombre}\n🆔 ID: ${admin.id || '-'}\n` +
-      `🔐 /sub habilitado: ${admin.permSub ? 'Sí' : 'No'}`;
+      `\n\n👑 Sos ADMIN\n` +
+      `👤 ${admin.nombre}\n📞 ${admin.numero}\n🆔 ${admin.id || '-'}\n` +
+      `🔐 /sub: ${admin.permSub ? 'Sí' : 'No'}`;
   } else {
     const activo = await verificarMembresia(idNorm);
     if (activo) {
       const t = await tiempoRestante(idNorm);
-      texto += `\n\n📆 *Membresía activa*\n⏳ Restante: ${t?.dias ?? '-'} día(s), ${t?.horas ?? '-'} hora(s).`;
+      texto += `\n\n📆 Membresía activa\n⏳ ${t?.dias ?? '-'}d ${t?.horas ?? '-'}h`;
     } else {
       texto +=
-        `\n\n🔒 *No tenés membresía activa.*\n🆓 Tenés 1 búsqueda gratis.\n` +
-        `📞 Para activar tu membresía hablá con el dueño: *${CONTACTO_DUEÑO}*`;
+        `\n\n🔒 Sin membresía activa.\n🆓 Tenés 1 búsqueda gratis.\n` +
+        `📞 Para activar: *${CONTACTO_DUEÑO}*`;
     }
   }
 
+  console.log(`⚡ Respondiendo información de usuario ${idNorm}`);
   await sock.sendMessage(respuestaDestino, {
     text: texto,
     mentions: esGrupo && senderJid ? [senderJid] : [],
@@ -302,25 +388,30 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
 }
 
 /* ============================
- * /admins (ranking ventas)
+ * /admins
  * ============================ */
 async function manejarAdmins(sock, respuestaDestino) {
-  const admins = await Admin.find({ ventas: { $gt: 0 } }).sort({ ventas: -1 });
+  const admins = await Admin.find().sort({ ventas: -1, createdAt: 1 });
+
   if (!admins.length) {
+    console.log('❌ No hay administradores registrados.');
     await sock.sendMessage(respuestaDestino, {
-      text: '📊 *No hay ventas registradas por ningún administrador.*',
+      text: '📊 No hay administradores registrados.',
     });
     return;
   }
 
-  let texto =
-    '📊 *Ranking de administradores por ventas*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
+  let texto = '📊 *Lista de administradores*\n';
   admins.forEach((a, i) => {
     texto +=
-      `*${i + 1}️⃣ ${a.nombre}*\n📞 Número: ${a.numero}\n🆔 ID: ${a.id || '-'}\n` +
-      `🛒 Ventas: ${a.ventas}\n💸 Total: $${(a.ventas * 15000).toLocaleString()}\n━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      `\n*${i + 1}️⃣ ${a.nombre}*\n` +
+      `📞 ${a.numero}\n🆔 ${a.id || '-'}\n` +
+      `🔐 /sub: ${a.permSub ? 'on' : 'off'}\n` +
+      `👑 Dueño: ${(a.isOwner || a.esDueño) ? 'Sí' : 'No'}\n` +
+      `🛒 Ventas: ${a.ventas || 0}\n`;
   });
 
+  console.log(`⚡ Listando administradores: ${admins.length} encontrados.`);
   await sock.sendMessage(respuestaDestino, { text: texto.trim() });
 }
 
@@ -337,6 +428,9 @@ module.exports = {
   esAdmin,
   puedeUsarSub,
 };
+
+
+
 
 
 

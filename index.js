@@ -22,6 +22,7 @@ const {
 
 // ✅ Importar helpers de admin/dueño
 const { esAdmin, esDueño } = require('./comandos/membre');
+const { Admin } = require('./models/Admin'); // 👑 Modelo de admins
 
 let socketGlobal = null;
 
@@ -38,6 +39,31 @@ function limpiarJid(jid) {
     .replace('@g.us', '');
 }
 
+// ✅ Setup automático de dueños
+async function setupAdmins() {
+  const DUEÑOS = ['5493813885182']; // 👉 poné acá tus números de dueño
+  for (const numero of DUEÑOS) {
+    const existe = await Admin.findOne({ numero });
+    if (!existe) {
+      await Admin.create({
+        numero,
+        nombre: 'Dueño',
+        isOwner: true,
+        permSub: true,
+      });
+      console.log(`✅ Dueño insertado en Mongo: ${numero}`);
+    } else if (!existe.isOwner) {
+      await Admin.updateOne(
+        { numero },
+        { $set: { isOwner: true, permSub: true, nombre: 'Dueño' } }
+      );
+      console.log(`🔄 Dueño actualizado en Mongo: ${numero}`);
+    } else {
+      console.log(`👑 Dueño ya existe en Mongo: ${numero}`);
+    }
+  }
+}
+
 async function iniciarBot() {
   try {
     console.log('⏳ Iniciando bot...');
@@ -45,6 +71,9 @@ async function iniciarBot() {
     // ⏳ Conexión a MongoDB
     await conectarMongo();
     console.log('✅ Conectado a MongoDB');
+
+    // 👑 Setup de dueños
+    await setupAdmins();
 
     const { state, saveCreds } = await useMultiFileAuthState('session');
 
@@ -210,7 +239,6 @@ server.on('error', err => {
 server.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
-
 
 
 

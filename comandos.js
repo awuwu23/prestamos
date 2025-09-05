@@ -31,11 +31,12 @@ const { mostrarMembresiasActivas } = require('./membresiactiva');
 
 // ✅ MongoDB modelos
 const { Membresia, HistorialGratis } = require('./models');
-const Admin = require('./models/Admin'); // 👑 Modelo para admins
+const { Admin } = require('./models/Admin'); // 👑 Modelo para admins
 
 // =============================
 // 📌 Configuración
 // =============================
+
 const enProceso = new Set();
 const cooldowns = new Map();
 const COOLDOWN_MS = 30000;
@@ -49,7 +50,7 @@ function esTelegram(sock) {
 
 // =============================
 // 📌 Manejador principal
-// =============================
+// ============================= 
 async function manejarMensaje(sock, msg) {
   try {
     // Evitar duplicados
@@ -99,9 +100,9 @@ async function manejarMensaje(sock, msg) {
     console.log('👑 ¿Es dueño?:', soyDueño);
     console.log('📦 Comando recibido:', comando);
 
-    // =============================
-    // 📌 Revisar membresía
-    // =============================
+    // ============================= 
+    // 📌 Revisar membresía 
+    // ============================= 
     let tieneMembresia = false;
     const miembro = await Membresia.findOne({
       $or: [{ numero: idUsuario }, { idGrupo: idUsuario }, { ids: idUsuario }],
@@ -118,9 +119,9 @@ async function manejarMensaje(sock, msg) {
     // Si es grupo de Telegram y no tiene permisos → salir
     if (esGrupoTelegram && !soyDueño && !esAdmin && !tieneMembresia) return;
 
-    // =============================
-    // 📌 Validaciones extra
-    // =============================
+    // ============================= 
+    // 📌 Validaciones extra 
+    // ============================= 
     const textoPlano = comando.replace(/[^A-Z0-9]/gi, '');
     const esDNI = /^\d{7,8}$/.test(comando);
     const esPatente =
@@ -130,9 +131,9 @@ async function manejarMensaje(sock, msg) {
     const esCVU = /^\d{22}$/.test(comando.replace(/\D/g, ''));
     const esConsulta = esDNI || esPatente || esCelular || esCVU;
 
-    // =============================
-    // 📌 Comandos principales
-    // =============================
+    // ============================= 
+    // 📌 Comandos principales 
+    // ============================= 
     if (comando === '/ID') {
       return await manejarId(
         sock,
@@ -257,7 +258,7 @@ async function manejarMensaje(sock, msg) {
         esGrupo,
         idUsuario
       );
-    if (comando.startsWith('/CREDITO '))
+    if (comando.startsWith('/CREDITO ')) 
       return await manejarCredito(
         sock,
         comando,
@@ -275,9 +276,9 @@ async function manejarMensaje(sock, msg) {
       return await mostrarMembresiasActivas(sock, respuestaDestino);
     }
 
-    // =============================
-    // 📌 Consultas
-    // =============================
+    // ============================= 
+    // 📌 Consultas 
+    // ============================= 
     if (esConsulta) {
       if (!esAdmin && !soyDueño && !tieneMembresia) {
         const yaUso = await HistorialGratis.findOne({ numero: idUsuario });
@@ -343,9 +344,9 @@ async function manejarMensaje(sock, msg) {
       });
     }
 
-    // =============================
-    // 📌 Comandos extra
-    // =============================
+    // ============================= 
+    // 📌 Comandos extra 
+    // ============================= 
     const manejado = await manejarComandosExtra(sock, msg, texto, idUsuario);
     if (manejado) return;
 
