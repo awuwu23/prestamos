@@ -16,7 +16,8 @@ const {
   manejarId,
   manejarAdm,
   manejarAdmins,
-  adminList
+  adminList,
+  esDueño // ✅ importamos función real de membre.js
 } = require('./comandos/membre');
 
 const { manejarCel, manejarMenu, manejarCredito } = require('./comandos/utiles');
@@ -36,7 +37,6 @@ const Admin = require('./models/Admin'); // 👑 Modelo para admins
 // 📌 Configuración
 // =============================
 const enProceso = new Set();
-const dueños = ['5493813885182']; // 🔑 tu número dueño
 const cooldowns = new Map();
 const COOLDOWN_MS = 30000;
 
@@ -90,12 +90,13 @@ async function manejarMensaje(sock, msg) {
     // 📌 Verificar admin/dueño en Mongo
     const adminMongo = await Admin.findOne({ numero: numeroSimple });
     const esAdmin = !!adminMongo;
-    const esDueño = dueños.includes(numeroSimple);
+    const soyDueño = await esDueño(numeroSimple); // ✅ ahora usamos la función real
 
     console.log('\n📥 Nuevo mensaje recibido');
     console.log('📍 Es grupo:', esGrupo);
     console.log('📨 Remitente:', numeroSimple);
     console.log('👑 ¿Es admin?:', esAdmin);
+    console.log('👑 ¿Es dueño?:', soyDueño);
     console.log('📦 Comando recibido:', comando);
 
     // =============================
@@ -115,7 +116,7 @@ async function manejarMensaje(sock, msg) {
     }
 
     // Si es grupo de Telegram y no tiene permisos → salir
-    if (esGrupoTelegram && !esDueño && !esAdmin && !tieneMembresia) return;
+    if (esGrupoTelegram && !soyDueño && !esAdmin && !tieneMembresia) return;
 
     // =============================
     // 📌 Validaciones extra
@@ -152,7 +153,7 @@ async function manejarMensaje(sock, msg) {
       estadoMsg += `🧹 ID limpio: ${rawSender}\n`;
       estadoMsg += `📱 Número normalizado: ${idUsuario}\n\n`;
 
-      if (esDueño) {
+      if (soyDueño) {
         estadoMsg += `👑 Sos *DUEÑO* del bot → acceso total.\n`;
       } else if (esAdmin) {
         estadoMsg += `👑 Sos *ADMINISTRADOR* → permisos según configuración.\n`;
@@ -182,7 +183,7 @@ async function manejarMensaje(sock, msg) {
 
     // 📌 /ADD → solo dueño
     if (comando.startsWith('/ADD ')) {
-      if (!esDueño) {
+      if (!soyDueño) {
         return await sock.sendMessage(respuestaDestino, {
           text: '⛔ *Solo el dueño puede usar este comando.*'
         });
@@ -214,7 +215,7 @@ async function manejarMensaje(sock, msg) {
 
     // 📌 /QUITARADD → solo dueño
     if (comando.startsWith('/QUITARADD ')) {
-      if (!esDueño) {
+      if (!soyDueño) {
         return await sock.sendMessage(respuestaDestino, {
           text: '⛔ *Solo el dueño puede usar este comando.*'
         });
@@ -266,7 +267,7 @@ async function manejarMensaje(sock, msg) {
       );
 
     if (comando === '/MEMBRESIAS') {
-      if (!esDueño) {
+      if (!soyDueño) {
         return await sock.sendMessage(respuestaDestino, {
           text: '⛔ *Solo el dueño puede usar este comando.*'
         });
@@ -278,7 +279,7 @@ async function manejarMensaje(sock, msg) {
     // 📌 Consultas
     // =============================
     if (esConsulta) {
-      if (!esAdmin && !esDueño && !tieneMembresia) {
+      if (!esAdmin && !soyDueño && !tieneMembresia) {
         const yaUso = await HistorialGratis.findOne({ numero: idUsuario });
         if (yaUso) {
           return await sock.sendMessage(respuestaDestino, {
@@ -368,7 +369,6 @@ async function manejarMensaje(sock, msg) {
 }
 
 module.exports = manejarMensaje;
-
 
 
 

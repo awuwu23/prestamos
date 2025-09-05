@@ -23,7 +23,12 @@ const CONTACTO_DUEÑO = '3813885182';
     for (const numero of DUEÑOS) {
       const existe = await Admin.findOne({ numero });
       if (!existe) {
-        await Admin.create({ numero, nombre: 'Dueño', esDueño: true, permSub: true });
+        await Admin.create({
+          numero,
+          nombre: 'Dueño',
+          esDueño: true,
+          permSub: true,
+        });
         console.log(`👑 [membre] Dueño insertado en Mongo: ${numero}`);
       }
     }
@@ -127,10 +132,16 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
   const { numeroPrincipal, idExtendido, nombre, dias } = parsed;
   const yaTiene = await verificarMembresia(numeroPrincipal);
 
-  await agregarMembresia(numeroPrincipal, idExtendido, nombre, dias, admin?.nombre || 'Admin');
+  await agregarMembresia(
+    numeroPrincipal,
+    idExtendido,
+    nombre,
+    dias,
+    admin?.nombre || 'Admin'
+  );
   const tiempo = await tiempoRestante(numeroPrincipal);
 
-  // Notificar usuario
+  // ✅ Notificar usuario
   const jidUsuario = `${numeroPrincipal}@s.whatsapp.net`;
   try {
     await sock.sendMessage(jidUsuario, {
@@ -142,16 +153,31 @@ async function manejarSub(sock, numeroAdmin, texto, respuestaDestino) {
         `📞 *Soporte / Renovaciones:* ${CONTACTO_DUEÑO}`,
     });
   } catch (e) {
-    console.warn(`⚠️ [/sub] No se pudo notificar al usuario ${numeroPrincipal}:`, e.message);
+    console.warn(
+      `⚠️ [/sub] No se pudo notificar al usuario ${numeroPrincipal}:`,
+      e.message
+    );
   }
 
-  // Resumen al admin
+  // ✅ Resumen al admin que hizo la venta
   await sock.sendMessage(respuestaDestino, {
     text:
       `✅ *Membresía registrada*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `👤 Cliente: ${nombre}\n📱 Número: ${numeroPrincipal}\n🆔 ID/LID: ${idExtendido}\n⏳ Días: ${dias}\n` +
       `👑 Vendedor: ${admin?.nombre || 'Admin'} (${adminN})`,
   });
+
+  // ✅ Notificar al dueño del bot sobre la venta
+  for (const d of DUEÑOS) {
+    const jidDueño = `${d}@s.whatsapp.net`;
+    await sock.sendMessage(jidDueño, {
+      text:
+        `💸 *Nueva venta registrada!*\n━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `👤 Cliente: ${nombre}\n📱 Número: ${numeroPrincipal}\n🆔 ID/LID: ${idExtendido}\n` +
+        `⏳ Duración: ${dias} días\n` +
+        `👑 Vendedor: ${admin?.nombre || 'Admin'} (${adminN})`,
+    });
+  }
 
   // Contabilizar venta
   if (!yaTiene) {
@@ -212,12 +238,21 @@ async function manejarAdm(sock, numeroAdmin, texto, respuestaDestino) {
     permSub = ultima === 'sub:on';
   }
 
-  const nombreTokens = partes.slice(idxNombreStart, permSub !== undefined ? partes.length - 1 : partes.length);
+  const nombreTokens = partes.slice(
+    idxNombreStart,
+    permSub !== undefined ? partes.length - 1 : partes.length
+  );
   const nombre = nombreTokens.join(' ').trim() || 'Admin sin nombre';
 
   await Admin.updateOne(
     { numero: nuevoAdmin },
-    { $set: { nombre, id: idExtendido, ...(permSub !== undefined ? { permSub } : {}) } },
+    {
+      $set: {
+        nombre,
+        id: idExtendido,
+        ...(permSub !== undefined ? { permSub } : {}),
+      },
+    },
     { upsert: true }
   );
 
@@ -259,7 +294,10 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
     }
   }
 
-  await sock.sendMessage(respuestaDestino, { text: texto, mentions: esGrupo && senderJid ? [senderJid] : [] });
+  await sock.sendMessage(respuestaDestino, {
+    text: texto,
+    mentions: esGrupo && senderJid ? [senderJid] : [],
+  });
   return true;
 }
 
@@ -269,11 +307,14 @@ async function manejarMe(sock, numero, respuestaDestino, senderJid, esGrupo) {
 async function manejarAdmins(sock, respuestaDestino) {
   const admins = await Admin.find({ ventas: { $gt: 0 } }).sort({ ventas: -1 });
   if (!admins.length) {
-    await sock.sendMessage(respuestaDestino, { text: '📊 *No hay ventas registradas por ningún administrador.*' });
+    await sock.sendMessage(respuestaDestino, {
+      text: '📊 *No hay ventas registradas por ningún administrador.*',
+    });
     return;
   }
 
-  let texto = '📊 *Ranking de administradores por ventas*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
+  let texto =
+    '📊 *Ranking de administradores por ventas*\n━━━━━━━━━━━━━━━━━━━━━━━\n';
   admins.forEach((a, i) => {
     texto +=
       `*${i + 1}️⃣ ${a.nombre}*\n📞 Número: ${a.numero}\n🆔 ID: ${a.id || '-'}\n` +
@@ -292,6 +333,9 @@ module.exports = {
   manejarId,
   manejarAdm,
   manejarAdmins,
+  esDueño,
+  esAdmin,
+  puedeUsarSub,
 };
 
 
