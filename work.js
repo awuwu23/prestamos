@@ -41,7 +41,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             new Promise(resolve => setTimeout(() => {
                 console.warn('⏰ Timeout esperando respuesta de federador');
                 resolve({});
-            }, 30000))
+            }, 20000)) // ⏳ Máximo 20s federador
         ]);
 
         console.log('📃 Texto extra analizado:', textoExtra);
@@ -60,8 +60,8 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         console.log(`📤 Enviando comando: ${comandoDni}`);
         await client.sendMessage(bot, { message: comandoDni });
 
-        // ✅ Reenviar todos los mensajes de /dni
-        await reenviarMensajesDelBot(client, bot, sock, destino, 20000);
+        // ✅ Reenviar todos los mensajes de /dni (35s)
+        await reenviarMensajesDelBot(client, bot, sock, destino, 35000);
 
         let dominioResultado = null;
         if (textoExtra?.dominio) {
@@ -76,7 +76,8 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         console.log(`📤 Enviando comando: ${comandoWork}`);
         await client.sendMessage(bot, { message: comandoWork });
 
-        await delay(15000);
+        // ⏳ Antes de /work -> 30s de espera
+        await delay(30000);
 
         const resultado = await esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
         console.log('📊 Resultado PDF analizado:', resultado);
@@ -150,7 +151,7 @@ async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroClient
             }
 
             resolve(analizarTextoEstructurado(texto));
-        }, 25000);
+        }, 30000); // ⏳ 30s de corte
     });
 }
 
@@ -179,6 +180,8 @@ async function reenviarMensajesDelBot(client, bot, sock, destino, delayMs = 2000
         setTimeout(async () => {
             resolved = true;
             client.removeEventHandler(handler);
+
+            console.log(`📦 [Reenvío Bot] Capturados ${mensajes.length} mensajes en ${delayMs / 1000}s`);
 
             if (sock && destino && mensajes.length > 0) {
                 for (const m of mensajes) {
