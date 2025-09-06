@@ -36,13 +36,8 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 
         await delay(10000);
 
-        const textoExtra = await Promise.race([
-            textoExtraPromise,
-            new Promise(resolve => setTimeout(() => {
-                console.warn('⏰ Timeout esperando respuesta de federador');
-                resolve({});
-            }, 20000)) // ⏳ Máximo 20s federador
-        ]);
+        // ✅ Ahora solo esperamos el resultado (maneja su propio timeout interno)
+        const textoExtra = await textoExtraPromise;
 
         console.log('📃 Texto extra analizado:', textoExtra);
         console.log('🧬 Sexo detectado:', textoExtra?.sexo);
@@ -261,7 +256,8 @@ function analizarTextoEstructurado(texto) {
     const cuitMatch = texto.match(/CU[IL]{2}:?\s*(\d{2,3}\d{8}\d{1})/i);
     if (cuitMatch) resultado.cuit = cuitMatch[1];
 
-    const sexoMatch = texto.match(/(?:•\s*)?Sexo\s*[:\-]?\s*(M|F|Masculino|Femenino)/i);
+    // 🔧 Regex más robusta para capturar "Sexo"
+    const sexoMatch = texto.match(/Sexo\s*[:\-]?\s*(M|F|Masculino|Femenino)/i);
     if (sexoMatch) {
         resultado.sexo = sexoMatch[1].charAt(0).toUpperCase();
         console.log('✅ Sexo detectado correctamente:', resultado.sexo);
@@ -282,6 +278,7 @@ function analizarTextoEstructurado(texto) {
 }
 
 module.exports = validarIdentidad;
+
 
 
 
