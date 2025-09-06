@@ -1,11 +1,20 @@
+// =============================
+// 📌 Importaciones
+// =============================
 const { iniciarClienteTelegram, botUsername } = require('./telegramClientNuevo');
 const esperarPDFyAnalizar = require('./pdfParser');
 const generarMensajeResultado = require('./mensajeResultado');
 const { consultarDominio } = require('./dominio');
 const { NewMessage } = require('telegram/events');
 
+// 📌 Importamos el Set compartido desde globals.js
+const { usuariosEsperandoSexo } = require('./globals');
+
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
+// =============================
+// 📌 Función principal
+// =============================
 async function validarIdentidad(dni, numeroCliente, sock, msg) {
     console.log('🚀 [validarIdentidad] Iniciando validación de identidad...');
     console.log('📍 DNI:', dni);
@@ -27,7 +36,7 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
         if (!bot) throw new Error('❌ No se pudo obtener el bot.');
         console.log('🤖 Bot obtenido:', bot.username || '[Sin username]');
 
-        // ✅ Activar handler antes de enviar el comando
+        // ✅ Handler antes de enviar el comando /federador
         const textoExtraPromise = esperarTextoExtraYAnalizar(client, bot, sock, numeroCliente, destino);
 
         const comandoFederador = `/federador ${dni}`;
@@ -36,21 +45,31 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
 
         await delay(10000);
 
-        // ✅ Ahora solo esperamos el resultado (maneja su propio timeout interno)
         const textoExtra = await textoExtraPromise;
-
         console.log('📃 Texto extra analizado:', textoExtra);
         console.log('🧬 Sexo detectado:', textoExtra?.sexo);
 
+        // ⚠️ Si no hay sexo → pedirlo al usuario
+        let generoDetectado = null;
         if (!textoExtra?.sexo) {
-            console.warn('⚠️ Sexo no detectado. Cancelando flujo para evitar error en /dni');
+            console.warn('⚠️ Sexo no detectado. Pidiendo al usuario...');
+
             await sock.sendMessage(destino, {
-                text: '⚠️ No se pudo obtener el sexo desde el informe federador. Reintentá más tarde.',
+                text: '⚠️ No pude identificar el sexo en el informe.\n\nPor favor escribí una de las siguientes opciones y enviámela:\n\n👉 *F* = Femenino\n👉 *M* = Masculino\n\n(Escribilo tal cual, solo una letra)'
             });
-            return;
+
+            usuariosEsperandoSexo.add(destino);
+
+            try {
+                generoDetectado = await esperarSexoUsuario(sock, destino);
+                console.log('✅ Sexo ingresado manualmente:', generoDetectado);
+            } finally {
+                usuariosEsperandoSexo.delete(destino);
+            }
+        } else {
+            generoDetectado = textoExtra.sexo.toUpperCase().startsWith('M') ? 'M' : 'F';
         }
 
-        const generoDetectado = textoExtra.sexo.toUpperCase().startsWith('M') ? 'M' : 'F';
         const comandoDni = `/dni ${dni} ${generoDetectado}`;
         console.log(`📤 Enviando comando: ${comandoDni}`);
         await client.sendMessage(bot, { message: comandoDni });
@@ -67,35 +86,100 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
             console.log('✅ Resultado de /dnrpa:', dominioResultado);
         }
 
+        // ✅ Flujo /work
+        const pdfWorkPromise = esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
         const comandoWork = `/work ${dni}`;
         console.log(`📤 Enviando comando: ${comandoWork}`);
         await client.sendMessage(bot, { message: comandoWork });
 
-        // ⏳ Antes de /work -> 30s de espera
-        await delay(30000);
+        const resultadoWork = await pdfWorkPromise;
+        console.log('📊 Resultado PDF Work analizado:', resultadoWork);
 
-        const resultado = await esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
-        console.log('📊 Resultado PDF analizado:', resultado);
-
-        if (!resultado || typeof resultado !== 'object') {
-            console.error('❌ No se obtuvo un resultado válido del informe.');
+        if (!resultadoWork || typeof resultadoWork !== 'object') {
+            console.error('❌ No se obtuvo un resultado válido del informe Work.');
             await sock.sendMessage(destino, {
-                text: '⚠️ No se pudo obtener el resultado del análisis del informe.',
+                text: '⚠️ No se pudo obtener el resultado del análisis del informe Work.',
             });
             return;
         }
 
-        const { mensajePrincipal, mensajeVacunas } = await generarMensajeResultado(dni, resultado, textoExtra, dominioResultado);
-        console.log('📤 Enviando resultado al cliente por WhatsApp...');
-        await sock.sendMessage(destino, { text: mensajePrincipal });
+        // 📤 Enviar PDF Work con caption
+        if (resultadoWork?.pdfBuffer) {
+            try {
+                await sock.sendMessage(destino, {
+                    document: resultadoWork.pdfBuffer,
+                    fileName: resultadoWork.pdfFileName || `${dni}_work.pdf`,
+                    mimetype: 'application/pdf',
+                    caption: '📎 Informe Work'
+                });
+                console.log('📤 PDF Work enviado al cliente por WhatsApp.');
+            } catch (err) {
+                console.error('❌ Error al enviar PDF Work:', err);
+            }
+        }
+
+        const { mensajePrincipal, mensajeVacunas } =
+            await generarMensajeResultado(dni, resultadoWork, textoExtra, dominioResultado);
+        if (mensajePrincipal) {
+            await sock.sendMessage(destino, { text: mensajePrincipal });
+        }
         if (mensajeVacunas) {
             await delay(1000);
             await sock.sendMessage(destino, { text: mensajeVacunas });
         }
 
-        console.log('✅ Mensaje enviado correctamente.');
-        console.log('🏁 [validarIdentidad] Finalizado correctamente.');
-        return resultado;
+        // 🔽 NUEVO FLUJO: /nosis
+        console.log('🚀 Iniciando flujo para /nosis...');
+        console.log('⏳ Esperando 20s para evitar anti-spam antes de /nosis...');
+        await delay(20000);
+
+        const pdfNosisPromise = esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino);
+        const nosisMensajesPromise = reenviarMensajesDelBot(client, bot, sock, destino, 25000);
+
+        const comandoNosis = `/nosis ${dni}`;
+        console.log(`📤 Enviando comando: ${comandoNosis}`);
+        await client.sendMessage(bot, { message: comandoNosis });
+
+        const resultadoNosis = await pdfNosisPromise;
+        console.log('📊 Resultado PDF Nosis analizado:', resultadoNosis);
+
+        await nosisMensajesPromise;
+
+        if (!resultadoNosis || typeof resultadoNosis !== 'object') {
+            console.error('❌ No se obtuvo un resultado válido del informe Nosis.');
+            await sock.sendMessage(destino, {
+                text: '⚠️ No se pudo obtener el resultado del informe Nosis.',
+            });
+        } else {
+            // 📤 Enviar PDF Nosis con caption
+            if (resultadoNosis?.pdfBuffer) {
+                try {
+                    await sock.sendMessage(destino, {
+                        document: resultadoNosis.pdfBuffer,
+                        fileName: resultadoNosis.pdfFileName || `${dni}_nosis.pdf`,
+                        mimetype: 'application/pdf',
+                        caption: '📎 Informe Nosis'
+                    });
+                    console.log('📤 PDF Nosis enviado al cliente por WhatsApp.');
+                } catch (err) {
+                    console.error('❌ Error al enviar PDF Nosis:', err);
+                }
+            }
+
+            const { mensajePrincipal: mensajeNosis, mensajeVacunas: mensajeVacunasNosis } =
+                await generarMensajeResultado(dni, resultadoNosis, textoExtra, dominioResultado);
+
+            if (mensajeNosis) {
+                await sock.sendMessage(destino, { text: mensajeNosis });
+            }
+            if (mensajeVacunasNosis) {
+                await delay(1000);
+                await sock.sendMessage(destino, { text: mensajeVacunasNosis });
+            }
+        }
+
+        console.log('✅ Flujo completo finalizado.');
+        return resultadoNosis;
 
     } catch (err) {
         console.error('❌ Error general en validarIdentidad:', err);
@@ -110,7 +194,9 @@ async function validarIdentidad(dni, numeroCliente, sock, msg) {
     }
 }
 
-// 🔽 Espera mensajes y analiza texto estructurado (para /federador)
+// =============================
+// 📌 Espera mensajes y analiza texto
+// =============================
 async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroCliente = null, destino = null) {
     return new Promise((resolve) => {
         let resolved = false;
@@ -118,7 +204,6 @@ async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroClient
 
         const handler = async (event) => {
             if (resolved) return;
-
             const msg = event.message;
             const fromBot = msg.senderId && msg.senderId.equals(bot.id);
             if (!fromBot || msg.media) return;
@@ -146,11 +231,13 @@ async function esperarTextoExtraYAnalizar(client, bot, sock = null, numeroClient
             }
 
             resolve(analizarTextoEstructurado(texto));
-        }, 30000); // ⏳ 30s de corte
+        }, 30000);
     });
 }
 
-// 🔽 Reenvía TODOS los mensajes del bot durante cierto tiempo
+// =============================
+// 📌 Reenvía TODOS los mensajes del bot
+// =============================
 async function reenviarMensajesDelBot(client, bot, sock, destino, delayMs = 20000) {
     return new Promise((resolve) => {
         let resolved = false;
@@ -158,7 +245,6 @@ async function reenviarMensajesDelBot(client, bot, sock, destino, delayMs = 2000
 
         const handler = async (event) => {
             if (resolved) return;
-
             const msg = event.message;
             const fromBot = msg.senderId && msg.senderId.equals(bot.id);
             if (!fromBot) return;
@@ -193,6 +279,9 @@ async function reenviarMensajesDelBot(client, bot, sock, destino, delayMs = 2000
     });
 }
 
+// =============================
+// 📌 Analizador de texto
+// =============================
 function analizarTextoEstructurado(texto) {
     const resultado = {
         gmail: null,
@@ -256,7 +345,6 @@ function analizarTextoEstructurado(texto) {
     const cuitMatch = texto.match(/CU[IL]{2}:?\s*(\d{2,3}\d{8}\d{1})/i);
     if (cuitMatch) resultado.cuit = cuitMatch[1];
 
-    // 🔧 Regex más robusta para capturar "Sexo"
     const sexoMatch = texto.match(/Sexo\s*[:\-]?\s*(M|F|Masculino|Femenino)/i);
     if (sexoMatch) {
         resultado.sexo = sexoMatch[1].charAt(0).toUpperCase();
@@ -277,7 +365,65 @@ function analizarTextoEstructurado(texto) {
     return resultado;
 }
 
+// =============================
+// 📌 Esperar sexo ingresado manualmente
+// =============================
+function esperarSexoUsuario(sock, destino, timeoutMs = 60000) {
+    return new Promise((resolve, reject) => {
+        let terminado = false;
+
+        const handler = async (m) => {
+            try {
+                if (terminado) return;
+                if (m.type !== 'notify') return;
+                if (!m.messages || m.messages.length === 0) return;
+
+                const msg = m.messages[0];
+                if (!msg?.key?.remoteJid) return;
+
+                const from = msg.key.remoteJid;
+                if (from !== destino) return;
+
+                const texto =
+                    msg.message?.conversation ||
+                    msg.message?.extendedTextMessage?.text ||
+                    '';
+                const clean = texto.trim().toUpperCase();
+
+                if (clean === 'F' || clean === 'M') {
+                    terminado = true;
+                    sock.ev.off('messages.upsert', handler);
+
+                    await sock.sendMessage(destino, {
+                        text: `✅ Perfecto, registré el sexo como *${clean === 'F' ? 'Femenino' : 'Masculino'}*. Continuamos con la validación...`
+                    });
+
+                    resolve(clean);
+                } else {
+                    await sock.sendMessage(destino, {
+                        text: '⚠️ Respuesta no válida.\n👉 Escribí solo *F* (Femenino) o *M* (Masculino).'
+                    });
+                }
+            } catch (err) {
+                console.error('❌ Error en esperarSexoUsuario:', err);
+            }
+        };
+
+        sock.ev.on('messages.upsert', handler);
+
+        setTimeout(() => {
+            if (!terminado) {
+                terminado = true;
+                sock.ev.off('messages.upsert', handler);
+                reject(new Error('Timeout esperando sexo del usuario.'));
+            }
+        }, timeoutMs);
+    });
+}
+
 module.exports = validarIdentidad;
+
+
 
 
 

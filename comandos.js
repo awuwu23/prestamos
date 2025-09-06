@@ -17,7 +17,7 @@ const {
   manejarAdm,
   manejarAdmins,
   adminList,
-  esDueño // ✅ importamos función real de membre.js
+  esDueño
 } = require('./comandos/membre');
 
 const { manejarCel, manejarMenu, manejarCredito } = require('./comandos/utiles');
@@ -31,7 +31,10 @@ const { mostrarMembresiasActivas } = require('./membresiactiva');
 
 // ✅ MongoDB modelos
 const { Membresia, HistorialGratis } = require('./models');
-const { Admin } = require('./models/Admin'); // 👑 Modelo para admins
+const { Admin } = require('./models/Admin');
+
+// ✅ Importamos el Set global desde globals.js
+const { usuariosEsperandoSexo } = require('./globals');
 
 // =============================
 // 📌 Configuración
@@ -50,7 +53,7 @@ function esTelegram(sock) {
 
 // =============================
 // 📌 Manejador principal
-// ============================= 
+// =============================
 async function manejarMensaje(sock, msg) {
   try {
     // Evitar duplicados
@@ -70,6 +73,12 @@ async function manejarMensaje(sock, msg) {
     const texto = mensaje.trim();
     const comando = texto.toUpperCase();
     const from = msg.key.remoteJid;
+
+    // 📌 🔒 FIX: si el usuario está respondiendo el sexo
+    if (usuariosEsperandoSexo.has(from)) {
+      console.log(`⚠️ Ignorando mensaje de ${from} porque está ingresando el sexo...`);
+      return;
+    }
 
     const esGrupoTelegram = esTelegram(sock) && from && from.startsWith('-100');
     const esGrupoWhatsApp = from?.endsWith?.('@g.us') || false;
@@ -91,7 +100,7 @@ async function manejarMensaje(sock, msg) {
     // 📌 Verificar admin/dueño en Mongo
     const adminMongo = await Admin.findOne({ numero: numeroSimple });
     const esAdmin = !!adminMongo;
-    const soyDueño = await esDueño(numeroSimple); // ✅ ahora usamos la función real
+    const soyDueño = await esDueño(numeroSimple);
 
     console.log('\n📥 Nuevo mensaje recibido');
     console.log('📍 Es grupo:', esGrupo);
@@ -100,9 +109,9 @@ async function manejarMensaje(sock, msg) {
     console.log('👑 ¿Es dueño?:', soyDueño);
     console.log('📦 Comando recibido:', comando);
 
-    // ============================= 
-    // 📌 Revisar membresía 
-    // ============================= 
+    // =============================
+    // 📌 Revisar membresía
+    // =============================
     let tieneMembresia = false;
     const miembro = await Membresia.findOne({
       $or: [{ numero: idUsuario }, { idGrupo: idUsuario }, { ids: idUsuario }],
@@ -116,12 +125,11 @@ async function manejarMensaje(sock, msg) {
       }
     }
 
-    // Si es grupo de Telegram y no tiene permisos → salir
     if (esGrupoTelegram && !soyDueño && !esAdmin && !tieneMembresia) return;
 
-    // ============================= 
-    // 📌 Validaciones extra 
-    // ============================= 
+    // =============================
+    // 📌 Validaciones extra
+    // =============================
     const textoPlano = comando.replace(/[^A-Z0-9]/gi, '');
     const esDNI = /^\d{7,8}$/.test(comando);
     const esPatente =
@@ -131,17 +139,11 @@ async function manejarMensaje(sock, msg) {
     const esCVU = /^\d{22}$/.test(comando.replace(/\D/g, ''));
     const esConsulta = esDNI || esPatente || esCelular || esCVU;
 
-    // ============================= 
-    // 📌 Comandos principales 
-    // ============================= 
+    // =============================
+    // 📌 Comandos principales
+    // =============================
     if (comando === '/ID') {
-      return await manejarId(
-        sock,
-        idUsuario,
-        respuestaDestino,
-        fakeSenderJid,
-        esGrupo
-      );
+      return await manejarId(sock, idUsuario, respuestaDestino, fakeSenderJid, esGrupo);
     }
 
     if (comando === '/ADMINS') {
@@ -177,12 +179,10 @@ async function manejarMensaje(sock, msg) {
       return await manejarAdm(sock, idUsuario, texto, respuestaDestino, adminList);
     }
 
-    // 📌 Usar manejarSub (validación incluida)
     if (comando.startsWith('/SUB')) {
       return await manejarSub(sock, idUsuario, texto, respuestaDestino);
     }
 
-    // 📌 /ADD → solo dueño
     if (comando.startsWith('/ADD ')) {
       if (!soyDueño) {
         return await sock.sendMessage(respuestaDestino, {
@@ -199,7 +199,7 @@ async function manejarMensaje(sock, msg) {
 
       const numero = normalizarNumero(partes[1]);
       const nombre = partes[2] || 'Admin';
-      const dias = parseInt(partes[3] || '36500', 10); // 100 años ≈ ilimitado
+      const dias = parseInt(partes[3] || '36500', 10);
 
       await agregarMembresia(numero, null, nombre, dias, 'DUEÑO');
 
@@ -214,7 +214,6 @@ async function manejarMensaje(sock, msg) {
       });
     }
 
-    // 📌 /QUITARADD → solo dueño
     if (comando.startsWith('/QUITARADD ')) {
       if (!soyDueño) {
         return await sock.sendMessage(respuestaDestino, {
@@ -243,29 +242,15 @@ async function manejarMensaje(sock, msg) {
       });
     }
 
-    if (comando === '/CEL')
-      return await manejarCel(sock, msg, comando, idUsuario);
-    if (comando === '/MENU')
-      return await manejarMenu(sock, respuestaDestino, fakeSenderJid, esGrupo);
-    if (comando === '/REGISTRAR')
-      return await manejarRegistrar(sock, msg, idUsuario);
-    if (comando.startsWith('/DNRPA'))
-      return await manejarDnrpa(
-        sock,
-        comando,
-        respuestaDestino,
-        fakeSenderJid,
-        esGrupo,
-        idUsuario
-      );
-    if (comando.startsWith('/CREDITO ')) 
-      return await manejarCredito(
-        sock,
-        comando,
-        respuestaDestino,
-        fakeSenderJid,
-        esGrupo
-      );
+    if (comando === '/CEL') return await manejarCel(sock, msg, comando, idUsuario);
+    if (comando === '/MENU') return await manejarMenu(sock, respuestaDestino, fakeSenderJid, esGrupo);
+    if (comando === '/REGISTRAR') return await manejarRegistrar(sock, msg, idUsuario);
+    if (comando.startsWith('/DNRPA')) {
+      return await manejarDnrpa(sock, comando, respuestaDestino, fakeSenderJid, esGrupo, idUsuario);
+    }
+    if (comando.startsWith('/CREDITO ')) {
+      return await manejarCredito(sock, comando, respuestaDestino, fakeSenderJid, esGrupo);
+    }
 
     if (comando === '/MEMBRESIAS') {
       if (!soyDueño) {
@@ -276,9 +261,9 @@ async function manejarMensaje(sock, msg) {
       return await mostrarMembresiasActivas(sock, respuestaDestino);
     }
 
-    // ============================= 
-    // 📌 Consultas 
-    // ============================= 
+    // =============================
+    // 📌 Consultas
+    // =============================
     if (esConsulta) {
       if (!esAdmin && !soyDueño && !tieneMembresia) {
         const yaUso = await HistorialGratis.findOne({ numero: idUsuario });
@@ -344,9 +329,9 @@ async function manejarMensaje(sock, msg) {
       });
     }
 
-    // ============================= 
-    // 📌 Comandos extra 
-    // ============================= 
+    // =============================
+    // 📌 Comandos extra
+    // =============================
     const manejado = await manejarComandosExtra(sock, msg, texto, idUsuario);
     if (manejado) return;
 
@@ -369,7 +354,11 @@ async function manejarMensaje(sock, msg) {
   }
 }
 
+// =============================
+// 📌 Exportaciones
+// =============================
 module.exports = manejarMensaje;
+
 
 
 

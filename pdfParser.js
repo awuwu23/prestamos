@@ -1,7 +1,7 @@
 const { NewMessage } = require('telegram/events');
 const pdf = require('pdf-parse');
 
-async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
+async function esperarPDFyAnalizar(client, bot, numeroCliente) {
     return new Promise((resolve) => {
         console.log('🕒 Esperando PDF...');
         let resolved = false;
@@ -95,38 +95,7 @@ async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
                     resolved = true;
                     client.removeEventHandler(handler);
 
-                    // ✅ Enviar el PDF al grupo o privado
-                    if (sock && destino && buffer?.length > 10000) {
-                        try {
-                            await sock.sendMessage(destino, {
-                                document: buffer,
-                                mimetype: 'application/pdf',
-                                fileName
-                            });
-                            console.log('✅ PDF enviado correctamente por WhatsApp.');
-                        } catch (err) {
-                            console.error('❌ Error al enviar PDF por WhatsApp:', err);
-                        }
-                    }
-
-                    // 🧾 Reenviar textos intermedios útiles
-                    if (sock && destino && textos.length > 2) {
-                        for (let i = 1; i < textos.length - 1; i++) {
-                            try {
-                                await sock.sendMessage(destino, { text: textos[i] });
-                            } catch (err) {
-                                console.warn('⚠️ Error reenviando texto intermedio:', err);
-                            }
-                        }
-                    }
-
-                    // ✅ Confirmación final al usuario
-                    if (sock && destino) {
-                        await sock.sendMessage(destino, {
-                            text: '✅ *Consulta finalizada.* Gracias por tu paciencia.'
-                        });
-                    }
-
+                    // 👉 Solo devolvemos el análisis, sin enviar nada por WhatsApp
                     return resolve({
                         deudas: rechazado || tieneDeudas ? 'Sí' : 'No',
                         acreedores,
@@ -138,7 +107,8 @@ async function esperarPDFyAnalizar(client, bot, numeroCliente, sock, destino) {
                         sexo,
                         validacionesCompletas,
                         pdfBuffer: buffer,
-                        pdfFileName: fileName
+                        pdfFileName: fileName,
+                        textosIntermedios: textos // devolvemos también los textos previos por si sirven
                     });
                 }
 
