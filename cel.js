@@ -1,3 +1,6 @@
+// =============================
+// 📌 Importaciones
+// =============================
 const { iniciarClienteTelegram, botUsername } = require('./telegramClientNuevo');
 const { NewMessage } = require('telegram/events');
 
@@ -51,7 +54,7 @@ async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDest
   if (!esAdminUser && !tieneMembresia) {
     if (yaUsoBusquedaGratis(remitenteNormalizado)) {
       await sock.sendMessage(respuestaDestino, {
-        text: '🔒 Ya usaste tu búsqueda gratuita. Contactá al *3813885182* para activar tu membresía.'
+        text: '🔒 Ya usaste tu búsqueda gratuita.\n\n💳 Contactá al *3813885182* para activar tu membresía y acceder a consultas ilimitadas.'
       });
       return;
     }
@@ -73,59 +76,24 @@ async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDest
   try {
     console.log(`📲 Enviando /cel ${celularParaTelegram} al bot de Telegram`);
     const bot = await client.getEntity(botUsername);
-    await client.sendMessage(bot, { message: `/cel ${celularParaTelegram}` });
 
-    const textos = [];
-    let imagenDescargada = false;
+    // ✅ Capturar respuestas de /cel
+    const resultadoCel = await capturarRespuestasTelegram(client, bot, `/cel ${celularParaTelegram}`, 40000, 15000);
 
-    // Configuración de tiempos extendidos
-    const DEBOUNCE_MS = 15000;       // 15 segundos de espera entre mensajes
-    const TIMEOUT_GLOBAL_MS = 40000; // Timeout máximo 40 segundos
+    // ✅ Procesar informe de /cel
+    await enviarInformeCel(sock, respuestaDestino, resultadoCel, "📱 *Informe de Celular*");
 
-    await new Promise((resolve, reject) => {
-      let timeout;
+    // ✅ Ahora lanzamos /movistar
+    await sock.sendMessage(respuestaDestino, {
+      text: `━━━━━━━━━━━━━━━━━━\n🔍 *Buscando información en Movistar* 📡\n📱 Número: *${celularParaTelegram}*\n━━━━━━━━━━━━━━━━━━`
+    });
 
-      const handler = async (event) => {
-        const msgTelegram = event.message;
-        const senderId = msgTelegram.senderId?.value || msgTelegram.senderId;
-        if (String(senderId) !== String(bot.id)) return;
+    const resultadoMovistar = await capturarRespuestasTelegram(client, bot, `/movistar ${celularParaTelegram}`, 30000, 10000);
 
-        if (msgTelegram.message) {
-          const contenido = msgTelegram.message.trim();
-          console.log('📩 Texto recibido del bot:', contenido);
-          textos.push(contenido);
-        }
+    await enviarInformeCel(sock, respuestaDestino, resultadoMovistar, "📡 *Informe Movistar*");
 
-        if (msgTelegram.media) {
-          console.log('🖼️ Imagen recibida del bot, descargando...');
-          try {
-            const buffer = await client.downloadMedia(msgTelegram);
-            const nombreArchivo = `informe_${Date.now()}.jpg`;
-            const rutaArchivo = path.join(__dirname, nombreArchivo);
-            fs.writeFileSync(rutaArchivo, buffer);
-            imagenDescargada = rutaArchivo;
-            console.log('✅ Imagen descargada en', rutaArchivo);
-          } catch (err) {
-            console.error('❌ Error al descargar imagen:', err);
-          }
-        }
-
-        // Reinicia timeout para esperar más mensajes
-        clearTimeout(timeout);
-        timeout = setTimeout(async () => {
-          client.removeEventHandler(handler);
-          await procesarRespuestas(sock, respuestaDestino, textos, imagenDescargada);
-          resolve();
-        }, DEBOUNCE_MS);
-      };
-
-      client.addEventHandler(handler, new NewMessage({}));
-
-      // Timeout global por si no llega ninguna respuesta
-      timeout = setTimeout(() => {
-        client.removeEventHandler(handler);
-        reject(new Error('⏰ Timeout esperando respuesta del bot de Telegram'));
-      }, TIMEOUT_GLOBAL_MS);
+    await sock.sendMessage(respuestaDestino, {
+      text: `✅ *Consulta finalizada exitosamente*`
     });
 
   } catch (err) {
@@ -139,24 +107,76 @@ async function consultarPorCelular(sock, comando, numeroRemitente, respuestaDest
 }
 
 /* ============================
- * Procesar respuestas
+ * Captura de respuestas
  * ============================ */
-async function procesarRespuestas(sock, to, textos, imagen) {
+async function capturarRespuestasTelegram(client, bot, comando, timeoutGlobal, debounceMs) {
+  return new Promise(async (resolve, reject) => {
+    const textos = [];
+    let imagenDescargada = null;
+    let timeout;
+
+    const handler = async (event) => {
+      const msgTelegram = event.message;
+      const senderId = msgTelegram.senderId?.value || msgTelegram.senderId;
+      if (String(senderId) !== String(bot.id)) return;
+
+      if (msgTelegram.message) {
+        const contenido = msgTelegram.message.trim();
+        console.log('📩 Texto recibido del bot:', contenido);
+        textos.push(contenido);
+      }
+
+      if (msgTelegram.media) {
+        console.log('🖼️ Imagen recibida del bot, descargando...');
+        try {
+          const buffer = await client.downloadMedia(msgTelegram);
+          const nombreArchivo = `informe_${Date.now()}.jpg`;
+          const rutaArchivo = path.join(__dirname, nombreArchivo);
+          fs.writeFileSync(rutaArchivo, buffer);
+          imagenDescargada = rutaArchivo;
+          console.log('✅ Imagen descargada en', rutaArchivo);
+        } catch (err) {
+          console.error('❌ Error al descargar imagen:', err);
+        }
+      }
+
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        client.removeEventHandler(handler);
+        resolve({ textos, imagen: imagenDescargada });
+      }, debounceMs);
+    };
+
+    client.addEventHandler(handler, new NewMessage({}));
+    await client.sendMessage(bot, { message: comando });
+
+    timeout = setTimeout(() => {
+      client.removeEventHandler(handler);
+      resolve({ textos, imagen: imagenDescargada });
+    }, timeoutGlobal);
+  });
+}
+
+/* ============================
+ * Enviar informe al usuario
+ * ============================ */
+async function enviarInformeCel(sock, to, datos, titulo) {
+  const { textos, imagen } = datos;
   const respuesta = textos.join('\n\n').trim();
-  console.log('📤 Enviando resultado final a WhatsApp...');
 
   if (respuesta) {
     await sock.sendMessage(to, {
-      text: `🔍 *Resultado de búsqueda:*\n\n${respuesta}`,
+      text: `━━━━━━━━━━━━━━━━━━\n${titulo}\n━━━━━━━━━━━━━━━━━━\n\n${respuesta}`,
     });
   }
+
   if (imagen) {
     const buffer = fs.readFileSync(imagen);
     await sock.sendMessage(to, {
       image: buffer,
-      caption: '📄 *Informe adjunto*',
+      caption: `${titulo} 📎`,
     });
-    fs.unlinkSync(imagen); // elimina archivo temporal
+    fs.unlinkSync(imagen);
     console.log('🗑️ Imagen temporal eliminada.');
   }
 }
