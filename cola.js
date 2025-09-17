@@ -1,21 +1,50 @@
 const consultaQueue = [];
 let consultaActiva = false;
+const DELAY_ENTRE_CONSULTAS = 15000; // 15 segundos entre consultas
+
+// ✨ Función para generar encabezados y separadores
+function formatoMensaje(titulo, contenido) {
+    const separador = '────────────────────────────';
+    return `*${titulo}*\n${separador}\n${contenido}\n${separador}`;
+}
 
 function agregarConsulta(sock, consulta) {
+    // ❌ Evitar repetición en la cola
     const yaExiste = consultaQueue.some(c => c.idUsuario === consulta.idUsuario);
-    if (yaExiste) return false; // ❌ Ya tiene una consulta pendiente
+    if (yaExiste) {
+        sock.sendMessage(consulta.destino, {
+            text: formatoMensaje('OSINT BOT 🔍', '⚠️ Ya tienes una consulta pendiente en la cola. Por favor espera tu turno.')
+        }).catch(() => {});
+        return false;
+    }
+
+    // 🌟 Ajustar destino si la respuesta es privada
+    if (consulta.respuestaPrivada) {
+        consulta.destino = `${consulta.idUsuario}@s.whatsapp.net`;
+    }
 
     consultaQueue.push(consulta);
 
-    // 🔢 Avisar posición en la cola si no es la primera
+    // 🔢 Calcular posición y tiempo aproximado
     const posicion = consultaQueue.length;
-    if (consultaActiva) {
-        sock.sendMessage(consulta.destino, {
-            text: `⏳ *Tu consulta fue agregada a la cola.*\n📄 Actualmente eres el *#${posicion}* en la fila.\n🔄 Espera a que las consultas anteriores se procesen...`
-        }).catch(() => {});
-    }
+    const tiempoEsperaSeg = (posicion - 1) * (DELAY_ENTRE_CONSULTAS / 1000);
+    const minutos = Math.floor(tiempoEsperaSeg / 60);
+    const segundos = Math.floor(tiempoEsperaSeg % 60);
 
-    if (!consultaActiva) procesarSiguiente(sock); // 🚀 Procesar si no hay ninguna activa
+    // ✅ Confirmación de ingreso
+    const mensajeIngreso = `
+👋 ¡Hola!
+✅ Tu consulta ha sido registrada correctamente.
+📄 Posición en la cola: *#${posicion}*
+⌛ Tiempo aproximado de espera: ${minutos}m ${segundos}s
+🕒 Por favor, espera tu turno.`;
+
+    sock.sendMessage(consulta.destino, {
+        text: formatoMensaje('OSINT BOT 🔍', mensajeIngreso)
+    }).catch(() => {});
+
+    // 🚀 Procesar si no hay ninguna activa
+    if (!consultaActiva) procesarSiguiente(sock);
     return true;
 }
 
@@ -26,7 +55,7 @@ function obtenerEstado() {
     };
 }
 
-function procesarSiguiente(sock) {
+async function procesarSiguiente(sock) {
     if (consultaQueue.length === 0) {
         consultaActiva = false;
         return;
@@ -36,25 +65,47 @@ function procesarSiguiente(sock) {
     const consulta = consultaQueue.shift();
     console.log(`🚀 Procesando consulta de ${consulta.idUsuario}`);
 
-    consulta.fn()
-        .then(async () => {
-            // ✅ Confirmación al usuario tras finalizar consulta
-            await sock.sendMessage(consulta.destino, {
-                text: '✅ *Consulta finalizada.* Gracias por esperar.'
+    try {
+        await consulta.fn();
+
+        // ✅ Confirmación al usuario tras finalizar consulta
+        const mensajeFinalizado = `
+🎉 Tu consulta ha sido finalizada con éxito.
+🙏 Gracias por esperar y utilizar OSINT BOT 🔍.`;
+        await sock.sendMessage(consulta.destino, {
+            text: formatoMensaje('OSINT BOT 🔍', mensajeFinalizado)
+        }).catch(() => {});
+    } catch (err) {
+        console.error(`❌ Error procesando consulta de ${consulta.idUsuario}:`, err);
+        const mensajeError = `
+⚠️ Ocurrió un error procesando tu consulta.
+⏳ Por favor, inténtalo de nuevo más tarde.`;
+        await sock.sendMessage(consulta.destino, {
+            text: formatoMensaje('OSINT BOT 🔍', mensajeError)
+        }).catch(() => {});
+    } finally {
+        // ⏳ Avisar a los que quedaron en la cola que subieron de posición
+        consultaQueue.forEach((c, index) => {
+            const nuevoPos = index + 1;
+            const tiempoEsperaSeg = index * (DELAY_ENTRE_CONSULTAS / 1000);
+            const minutos = Math.floor(tiempoEsperaSeg / 60);
+            const segundos = Math.floor(tiempoEsperaSeg % 60);
+
+            const mensajeSubida = `
+🔼 ¡Tu posición en la cola ha subido!
+📄 Nueva posición: *#${nuevoPos}*
+⌛ Tiempo aproximado de espera: ${minutos}m ${segundos}s`;
+
+            sock.sendMessage(c.destino, {
+                text: formatoMensaje('OSINT BOT 🔍', mensajeSubida)
             }).catch(() => {});
-        })
-        .catch((err) => {
-            console.error(`❌ Error procesando consulta de ${consulta.idUsuario}:`, err);
-            sock.sendMessage(consulta.destino, {
-                text: '⚠️ Ocurrió un error procesando tu consulta. Intentalo de nuevo más tarde.'
-            }).catch(() => {});
-        })
-        .finally(() => {
-            // ⏳ Espera 15s antes de la siguiente consulta
-            setTimeout(() => {
-                procesarSiguiente(sock);
-            }, 15000);
         });
+
+        // ⏳ Espera antes de procesar la siguiente
+        setTimeout(() => {
+            procesarSiguiente(sock);
+        }, DELAY_ENTRE_CONSULTAS);
+    }
 }
 
 module.exports = {
@@ -62,6 +113,7 @@ module.exports = {
     obtenerEstado,
     procesarSiguiente
 };
+
 
 
 
