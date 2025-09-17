@@ -33,7 +33,6 @@ function agregarConsulta(sock, consulta) {
 
     // ✅ Confirmación de ingreso
     const mensajeIngreso = `
-👋 ¡Hola!
 ✅ Tu consulta ha sido registrada correctamente.
 📄 Posición en la cola: *#${posicion}*
 ⌛ Tiempo aproximado de espera: ${minutos}m ${segundos}s
@@ -68,14 +67,6 @@ async function procesarSiguiente(sock) {
     try {
         await consulta.fn();
 
-        // ✅ Confirmación al usuario tras finalizar consulta
-        const mensajeFinalizado = `
-🎉 Tu consulta ha sido finalizada con éxito.
-🙏 Gracias por esperar y utilizar OSINT BOT 🔍.`;
-        await sock.sendMessage(consulta.destino, {
-            text: formatoMensaje('OSINT BOT 🔍', mensajeFinalizado)
-        }).catch(() => {});
-    } catch (err) {
         console.error(`❌ Error procesando consulta de ${consulta.idUsuario}:`, err);
         const mensajeError = `
 ⚠️ Ocurrió un error procesando tu consulta.
