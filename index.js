@@ -187,15 +187,15 @@ async function iniciarBot() {
           await manejarMensaje(sock, msg, remitenteLimpio, chatLimpio, isGroup);
         } catch (err) {
           console.error('❌ Error procesando mensaje:', err.message);
-          try {
-            await sock.sendMessage(from, {
-              text: '⚠️ Error procesando tu mensaje. Intentá nuevamente.'
-            });
-          } catch (e) {
-            console.error(
-              '❌ No se pudo enviar mensaje de error:',
-              e.message
-            );
+          // 🚫 No enviar errores a grupos, solo a privados
+          if (!isGroup) {
+            try {
+              await sock.sendMessage(from, {
+                text: '⚠️ Error procesando tu mensaje. Intentá nuevamente.'
+              });
+            } catch (e) {
+              console.error('❌ No se pudo enviar mensaje de error:', e.message);
+            }
           }
         }
       }
@@ -239,16 +239,3 @@ server.on('error', err => {
 server.listen(PORT, () => {
   console.log(`🌐 Servidor keepalive escuchando en el puerto ${PORT}`);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-

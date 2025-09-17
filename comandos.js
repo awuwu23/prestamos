@@ -348,9 +348,15 @@ async function manejarMensaje(sock, msg) {
     }
   } catch (err) {
     console.error('❌ Error al manejar mensaje:', err);
-    await sock.sendMessage(msg.key.remoteJid, {
-      text: '⚠️ *Ocurrió un error procesando tu mensaje.*\n\n❌ Intentá nuevamente.'
-    });
+    const from = msg.key.remoteJid;
+    const esGrupo = from?.endsWith?.('@g.us') || false;
+
+    // 🚫 Solo enviar errores si es chat privado
+    if (!esGrupo) {
+      await sock.sendMessage(from, {
+        text: '⚠️ *Ocurrió un error procesando tu mensaje.*\n\n❌ Intentá nuevamente.'
+      });
+    }
   }
 }
 
@@ -358,6 +364,7 @@ async function manejarMensaje(sock, msg) {
 // 📌 Exportaciones
 // =============================
 module.exports = manejarMensaje;
+
 
 
 
