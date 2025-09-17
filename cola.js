@@ -8,6 +8,7 @@ function formatoMensaje(titulo, contenido) {
     return `*${titulo}*\n${separador}\n${contenido}\n${separador}`;
 }
 
+// 📌 Agregar una nueva consulta a la cola
 function agregarConsulta(sock, consulta) {
     // ❌ Evitar repetición en la cola
     const yaExiste = consultaQueue.some(c => c.idUsuario === consulta.idUsuario);
@@ -47,6 +48,7 @@ function agregarConsulta(sock, consulta) {
     return true;
 }
 
+// 📌 Consultar estado actual de la cola
 function obtenerEstado() {
     return {
         activa: consultaActiva,
@@ -54,6 +56,7 @@ function obtenerEstado() {
     };
 }
 
+// 📌 Procesar la siguiente consulta en la cola
 async function procesarSiguiente(sock) {
     if (consultaQueue.length === 0) {
         consultaActiva = false;
@@ -67,6 +70,11 @@ async function procesarSiguiente(sock) {
     try {
         await consulta.fn();
 
+        // ✅ Avisar finalización
+        await sock.sendMessage(consulta.destino, {
+            text: formatoMensaje('OSINT BOT 🔍', '✅ Consulta finalizada. Gracias por esperar.')
+        }).catch(() => {});
+    } catch (err) {
         console.error(`❌ Error procesando consulta de ${consulta.idUsuario}:`, err);
         const mensajeError = `
 ⚠️ Ocurrió un error procesando tu consulta.
@@ -75,7 +83,7 @@ async function procesarSiguiente(sock) {
             text: formatoMensaje('OSINT BOT 🔍', mensajeError)
         }).catch(() => {});
     } finally {
-        // ⏳ Avisar a los que quedaron en la cola que subieron de posición
+        // 🔔 Avisar a los que quedaron en la cola que subieron de posición
         consultaQueue.forEach((c, index) => {
             const nuevoPos = index + 1;
             const tiempoEsperaSeg = index * (DELAY_ENTRE_CONSULTAS / 1000);
@@ -104,6 +112,7 @@ module.exports = {
     obtenerEstado,
     procesarSiguiente
 };
+
 
 
 
